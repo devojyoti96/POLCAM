@@ -1,12 +1,22 @@
 import os, numpy as np, time, multiprocessing as mp, psutil
 import glob
 from casacore.tables import table as casacore_table, makecoldesc
+from optparse import OptionParser
+os.system('rm -rf casa*log')
 
-beamfile = "/Data/P-AIRCARS-quartical/paircarsdata/mwa_full_embedded_element_pattern.h5"
-sourcelist = "/Data/GGSM.txt"
 
-
-def import_model(msname):
+def import_model(msname,beamfile,sourcelist):
+    """
+    Simulate visibilities and import in the measurement set
+    Parameters
+    ----------
+    msname : str
+        Name of the measurement set
+    beamfile : str
+        Beam file name
+    sourcelist : str
+        Source file name
+    """            
     try:
         starttime = time.time()
         metafits = (
@@ -87,13 +97,50 @@ def import_model(msname):
         print("Model import done in : " + str(time.time() - starttime) + "s")
         os.system("rm -rf casa*log")
         os.system("rm -rf " + model_msname)
+        return 0
     except Exception as e:
         print("Model simulation and import failed for : ", msname)
         os.system("rm -rf casa*log")
+        return 1
 
+################################        
+def main():
+    usage = "Simulate and import visibilities"
+    parser = OptionParser(usage=usage)
+    parser.add_option(
+        "--msname",
+        dest="msname",
+        default=None,
+        help="Name of the measurement set",
+        metavar="String",
+    )
+    parser.add_option(
+        "--beamfile",
+        dest="beamfile",
+        default=None,
+        help="Name of the MWA PB file",
+        metavar="String",
+    )
+    parser.add_option(
+        "--sourcelist",
+        dest="sourcelist",
+        default=None,
+        help="Source model file",
+        metavar="String",
+    )
+    if options.msname==None:
+        print ('Please provide the measurement set name.\n')
+        return 1
+    if options.beamfile==None:
+        print ('Please provide the MWA PB file.\n')
+        return 1
+    if options.sourcelist==None:
+        print ('Please provide the sourcelist file.\n')
+        return 1    
+    msg=import_model(options.msname,options.beamfile,options.sourcelist)
+    return msg
 
 if __name__ == "__main__":
-    msname = input("msname:")
-    import_model(msname)
+    result=main()
+    os._exit(result)  
 
-os.system("rm -rf casa*log")

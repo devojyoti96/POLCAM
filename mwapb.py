@@ -922,24 +922,29 @@ def main():
     )
     (options, args) = parser.parse_args()
     nthreads = int(options.nthreads)
-    mwapb_cor(
-        str(options.imagename),
-        str(options.outfile),
-        str(options.MWA_PB_file),
-        str(options.sweetspot_file),
-        metafits=options.metafits,
-        iau_order=eval(str(options.iau_order)),
-        pb_jones_file=options.pb_jones_file,
-        verbose=eval(str(options.verbose)),
-        gridpoint=int(options.gridpoint),
-        nthreads=nthreads,
-        conv=str(options.conv),
-        restore=eval(str(options.restore)),
-        save_pb_file=options.save_pb,
-        differential_pb=eval(str(options.differential_pb)),
-        output_stokes=options.output_stokes,
-    )
+    try:
+        mwapb_cor(
+            str(options.imagename),
+            str(options.outfile),
+            str(options.MWA_PB_file),
+            str(options.sweetspot_file),
+            metafits=options.metafits,
+            iau_order=eval(str(options.iau_order)),
+            pb_jones_file=options.pb_jones_file,
+            verbose=eval(str(options.verbose)),
+            gridpoint=int(options.gridpoint),
+            nthreads=nthreads,
+            conv=str(options.conv),
+            restore=eval(str(options.restore)),
+            save_pb_file=options.save_pb,
+            differential_pb=eval(str(options.differential_pb)),
+            output_stokes=options.output_stokes,
+        )
+        return 0
+    except:
+        return 1        
 
 
 if __name__ == "__main__":
-    main()
+    result=main()
+    os._exit(result)

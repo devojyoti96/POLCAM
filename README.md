@@ -1,2 +1,2 @@
-# mwa_polcal_pipeline
-# mwa_polcal_pipeline
+# Polarization Calibration Pipeline for Murchison Widefield Array Observations
+

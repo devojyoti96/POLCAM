@@ -1,11 +1,10 @@
 import numpy as np, os
 from casatools import table
 from casatasks import applycal
-
 os.system("rm -rf casa*log")
 
 
-def crossphasecal(msname, caltable="", gaintable=[]):
+def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
     """
     Function to calculate MWA cross hand phase
     Parameters
@@ -14,6 +13,8 @@ def crossphasecal(msname, caltable="", gaintable=[]):
             Name of the measurement set
     caltable : str
         Name of the caltable
+    uvrange : str
+        UV-range for calibration    
     gaintable : str
             Previous gaintable
     Returns
@@ -26,14 +27,15 @@ def crossphasecal(msname, caltable="", gaintable=[]):
         datacolumn = "CORRECTED_DATA"
     else:
         datacolumn = "DATA"
+    split(vis=msname,outputvis=msname.split('.ms')[0]+'_kcrosscal.ms',uvrange=uvrange,datacolumn=datacolumn)    
     if caltable == "":
         caltable = msname.split(".ms")[0] + ".kcross"
-    tb = table(msname)
+    tb = table(msname.split('.ms')[0]+'_kcrosscal.ms')
     cor_data = tb.getcol(datacolumn)
     model_data = tb.getcol("MODEL_DATA")
     flag = tb.getcol("FLAG")
     tb.close()
-    tb.open(msname + "/SPECTRAL_WINDOW")
+    tb.open(msname.split('.ms')[0]+'_kcrosscal.ms/SPECTRAL_WINDOW")
     freqs = tb.getcol("CHAN_FREQ").flatten()
     tb.close()
     cor_data[flag] = np.nan
@@ -45,6 +47,7 @@ def crossphasecal(msname, caltable="", gaintable=[]):
     argument = xy_data * xy_model.conjugate() + yx_data.conjugate() * yx_model
     crossphase = np.angle(np.nansum(argument, axis=1), deg=True)
     np.save(caltable, [freqs, crossphase])
+    os.system('rm -rf '+msname.split('.ms')[0]+'_kcrosscal.ms')
     return caltable
 
 

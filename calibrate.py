@@ -28,7 +28,7 @@ def do_flag_cal(msname, refant, uvrange=""):
         Crosshand phase caltable
     """
     try:
-        print("Flagging.." + msname)
+        print("Flagging: " + msname)
         flagdata(vis=msname, mode="tfcrop")
         tb = table()
         tb.open(msname + "/SPECTRAL_WINDOW")
@@ -50,6 +50,8 @@ def do_flag_cal(msname, refant, uvrange=""):
             + msname
             + "\n#######################\n"
         )
+        if uvrange=='':
+            uvrange=get_calibration_uvrange(msname)   
         bandpass(
             vis=msname,
             caltable=caltable_prefix + ".bcal",

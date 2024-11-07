@@ -114,10 +114,6 @@ def apply_crossphasecal(msname, gaintable="", datacolumn="DATA", applymode="calf
     data[1, ...] = xy_data_cor
     data[2, ...] = yx_data_cor
     tb.putcol(datacolumn, data)
-    if applymode=='calflag':
-        flag=tb.getcol('FLAG')
-        flag[:,pos,:]=True
-        tb.putcol('FLAG',flag)
     tb.flush()
     tb.close()
     return

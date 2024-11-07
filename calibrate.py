@@ -4,9 +4,11 @@ from calibrate_crossphase import crossphasecal
 from optparse import OptionParser
 from basic_func import *
 import os
+
 os.system("rm -rf casa*log")
 
-def do_flag_cal(msname,refant,uvrange=''):
+
+def do_flag_cal(msname, refant, uvrange=""):
     """
     Parameters
     ----------
@@ -23,22 +25,34 @@ def do_flag_cal(msname,refant,uvrange=''):
     str
         Bandpass caltable
     str
-        Crosshand phase caltable                
+        Crosshand phase caltable
     """
-    try:        
+    try:
         print("Flagging.." + msname)
         flagdata(vis=msname, mode="tfcrop")
-        tb=table()
-        tb.open(msname+'/SPECTRAL_WINDOW')
-        freq=tb.getcol('CHAN_FREQ')
+        tb = table()
+        tb.open(msname + "/SPECTRAL_WINDOW")
+        freq = tb.getcol("CHAN_FREQ")
         tb.close()
-        start_coarse_chan=freq_to_MWA_coarse(freq[0]/10**6)
-        end_coarse_chan=freq_to_MWA_coarse(freq[-1]/10**6)
-        caltable_prefix=msname.split(".ms")[0] + "_ref_" + str(refant) + "_ch_"+str(start_coarse_chan)+"_"+str(end_coarse_chan)
-        print("################\nCalibrating ms :" + msname + "\n#######################\n")
+        start_coarse_chan = freq_to_MWA_coarse(freq[0] / 10**6)
+        end_coarse_chan = freq_to_MWA_coarse(freq[-1] / 10**6)
+        caltable_prefix = (
+            msname.split(".ms")[0]
+            + "_ref_"
+            + str(refant)
+            + "_ch_"
+            + str(start_coarse_chan)
+            + "_"
+            + str(end_coarse_chan)
+        )
+        print(
+            "################\nCalibrating ms :"
+            + msname
+            + "\n#######################\n"
+        )
         bandpass(
             vis=msname,
-            caltable=caltable_prefix+".bcal",
+            caltable=caltable_prefix + ".bcal",
             refant=str(refant),
             solint="inf",
             uvrange=uvrange,
@@ -47,14 +61,16 @@ def do_flag_cal(msname,refant,uvrange=''):
         crossphase_caltable = crossphasecal(
             msname,
             uvrange=uvrange,
-            caltable=caltable_prefix+".kcross",
-            gaintable=[caltable_prefix+".bcal"],
+            caltable=caltable_prefix + ".kcross",
+            gaintable=[caltable_prefix + ".bcal"],
         )
-        return 0,caltable_prefix+".bcal",caltable_prefix+".kcross"
-    except:
-        return 1, None, None        
-      
-################################        
+        return 0, caltable_prefix + ".bcal", crossphase_caltable
+    except Exception as e:
+        print ('Exception: ',e)
+        return 1, None, None
+
+
+################################
 def main():
     usage = "Flag and calibrate"
     parser = OptionParser(usage=usage)
@@ -68,14 +84,14 @@ def main():
     parser.add_option(
         "--refant",
         dest="refant",
-        default='1',
+        default="1",
         help="Reference antenna",
         metavar="String",
     )
     parser.add_option(
         "--uvrange",
         dest="uvrange",
-        default='',
+        default="",
         help="UV-range for calibration",
         metavar="String",
     )
@@ -86,24 +102,30 @@ def main():
         help="Caltable directory",
         metavar="String",
     )
-    if options.msname==None:
-        print ('Please provide the measurement set name.\n')
+    (options, args) = parser.parse_args()
+    if options.msname == None:
+        print("Please provide the measurement set name.\n")
         return 1
-    if options.caldir==None:
-        caldir=os.path.dirname(options.msname)+'/caltables'
+    if options.caldir == None:
+        caldir = os.path.dirname(options.msname) + "/caltables"
     else:
-        caldir=options.caldir
-    if os.path.exists(caldir)==False:
-        os.makedirs(caldirs)               
-    msg, bcal, kcrosscal =do_flag_cal(options.msname,options.refant,uvrange=options.uvrange)
-    if msg==0:
-        os.system('mv '+bcal+' '+caldir)
-        os.system('mv '+kcrosscal+' '+caldir)
-        print ("Caltable names: "+str(bcal)+','+str(kcrosscal))
+        caldir = options.caldir
+    if os.path.exists(caldir) == False:
+        os.makedirs(caldir)
+    msg, bcal, kcrosscal = do_flag_cal(
+        options.msname, options.refant, uvrange=str(options.uvrange)
+    )
+    if msg == 0:
+        os.system('rm -rf '+caldir+'/'+os.path.basename(bcal))
+        os.system("mv " + bcal + " " + caldir)
+        os.system('rm -rf '+caldir+'/'+os.path.basename(kcrosscal))
+        os.system("mv " + kcrosscal + " " + caldir)
+        print("Caltable names: " + str(bcal) + "," + str(kcrosscal))
+    else:
+        print ("Issues occured")    
     return msg
 
+
 if __name__ == "__main__":
-    result=main()
-    os._exit(result)     
-    
-    
+    result = main()
+    os._exit(result)

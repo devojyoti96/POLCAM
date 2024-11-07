@@ -1,26 +1,48 @@
 from casatools import table, msmetadata
 import numpy as np
 
-def freq_to_MWA_coarse(freq):
-	'''
-	Frequency to MWA coarse channel conversion
 
-	Parameters
-	----------
-	freq : float 
-		Frequency in MHz
-	Returns
-	-------
-	int
-		MWA coarse channel number
-	'''
-	freq=float(freq)
-	coarse_chans=[[(i*1.28)-0.64,(i*1.28)+0.64] for i in range(300)]
-	for i in range(len(coarse_chans)):
-		ch0=round(coarse_chans[i][0],2)
-		ch1=round(coarse_chans[i][1],2)
-		if freq>=ch0 and freq<ch1:
-			return i 
+def freq_to_MWA_coarse(freq):
+    """
+    Frequency to MWA coarse channel conversion
+
+    Parameters
+    ----------
+    freq : float
+            Frequency in MHz
+    Returns
+    -------
+    int
+            MWA coarse channel number
+    """
+    freq = float(freq)
+    coarse_chans = [[(i * 1.28) - 0.64, (i * 1.28) + 0.64] for i in range(300)]
+    for i in range(len(coarse_chans)):
+        ch0 = round(coarse_chans[i][0], 2)
+        ch1 = round(coarse_chans[i][1], 2)
+        if freq >= ch0 and freq < ch1:
+            return i
+
+
+def get_chans_flags(msname):
+    """
+    Get channels flagged or not
+    Parameters
+    ----------
+    msname : str
+        Name of the measurement set
+    Returns
+    -------
+    numpy.array
+        A boolean array indicating whether the channel is completely flagged or not
+    """
+    tb = table()
+    tb.open(msname)
+    flag = tb.getcol("FLAG")
+    tb.close()
+    chan_flags = np.all(np.all(flag, axis=-1), axis=0)
+    return chan_flags
+
 
 def MWA_field_of_view(msname, FWHM=True):
     """

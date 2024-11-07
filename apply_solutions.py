@@ -2,16 +2,13 @@ from casatasks import applycal
 from calibrate_crossphase import apply_crossphasecal
 from optparse import OptionParser
 import os
+
 os.system("rm -rf casa*log")
 
-########
-# Inputs
-########
-msname = input("Name of the target measurement set:")
-bandpass_table = input("Path of the bandpass table:")
-kcross_table = input("Path of the crosshand phase table:")
 
-def apply_sol(msname,bandpass_table,kcross_table):
+def apply_sol(
+    msname, bandpass_table, kcross_table, applymode="calflag", flagbackup=True
+):
     """
     Apply bandpass and crosshand phase solutions
     Parameters
@@ -22,18 +19,34 @@ def apply_sol(msname,bandpass_table,kcross_table):
         Bandpass table name
     kcross_table : str
         Crosshand phase table
+    applymode : str
+        Solution apply and flag
+    flagbackup : bool
+        Keep flag backup before applying solutions
     """
-    try:            
+    try:
         print("Applying bandpass solutons...\n")
-        applycal(vis=msname, gaintable=[bandpass_table], applymode="calflag", flagbackup=True)
+        applycal(
+            vis=msname,
+            gaintable=[bandpass_table],
+            applymode=applymode,
+            flagbackup=flagbackup,
+        )
         print("Applying crosshand phase solutions...\n")
-        apply_crossphasecal(msname, gaintable=kcross_table, datacolumn="CORRECTED_DATA")
+        apply_crossphasecal(
+            msname,
+            gaintable=kcross_table,
+            datacolumn="CORRECTED_DATA",
+            applymode=applymode,
+            flagbackup=flagbackup,
+        )
         return 0
     except Exception as e:
-        print ('Exception: ',e)
+        print("Exception: ", e)
         return 1
-      
-################################        
+
+
+################################
 def main():
     usage = "Apply calibration solutions"
     parser = OptionParser(usage=usage)
@@ -58,18 +71,40 @@ def main():
         help="Crosshand phase table",
         metavar="String",
     )
-    if options.msname==None:
-        print ('Please provide the measurement set name.\n')
+    parser.add_option(
+        "--applymode",
+        dest="applymode",
+        default="calflag",
+        help="Solution apply and flag",
+        metavar="String",
+    )
+    parser.add_option(
+        "--flagbackup",
+        dest="flagbackup",
+        default=True,
+        help="Keep flag backup before applying solutions or not",
+        metavar="Boolean",
+    )
+    (options, args) = parser.parse_args()
+    if options.msname == None:
+        print("Please provide the measurement set name.\n")
         return 1
-    if options.bandpass_table==None:
-        print ('Please provide the bandpass table name.\n')
+    if options.bandpass_table == None:
+        print("Please provide the bandpass table name.\n")
         return 1
-    if options.bandpass_table==None:
-        print ('Please provide the crosshand phase table name.\n')
-        return 1    
-    msg=apply_sol(options.msname,options.bandpass_table,options.kcross_table)   
+    if options.bandpass_table == None:
+        print("Please provide the crosshand phase table name.\n")
+        return 1
+    msg = apply_sol(
+        options.msname,
+        options.bandpass_table,
+        options.kcross_table,
+        applymode=options.applymode,
+        flagbackup=eval(str(options.flagbackup)),
+    )
     return msg
 
+
 if __name__ == "__main__":
-    result=main()
-    os._exit(result)            
+    result = main()
+    os._exit(result)

@@ -1,6 +1,8 @@
 import numpy as np, os
-from casatools import table
-from casatasks import applycal
+from casatools import table,agentflagger
+from casatasks import applycal, split
+from basic_func import  get_chans_flags
+from datetime import datetime
 os.system("rm -rf casa*log")
 
 
@@ -23,19 +25,19 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
             Name of the caltable
     """
     if len(gaintable) > 0:
+        print ('applycal(vis=\''+msname+'\',gaintable='+str(gaintable)+', applymode=\"calflag\", flagbackup=True)\n')
         applycal(vis=msname, gaintable=gaintable, applymode="calflag", flagbackup=True)
         datacolumn = "CORRECTED_DATA"
     else:
         datacolumn = "DATA"
-    split(vis=msname,outputvis=msname.split('.ms')[0]+'_kcrosscal.ms',uvrange=uvrange,datacolumn=datacolumn)    
     if caltable == "":
         caltable = msname.split(".ms")[0] + ".kcross"
-    tb = table(msname.split('.ms')[0]+'_kcrosscal.ms')
+    tb = table(msname)
     cor_data = tb.getcol(datacolumn)
     model_data = tb.getcol("MODEL_DATA")
     flag = tb.getcol("FLAG")
     tb.close()
-    tb.open(msname.split('.ms')[0]+'_kcrosscal.ms/SPECTRAL_WINDOW")
+    tb.open(msname+"/SPECTRAL_WINDOW")
     freqs = tb.getcol("CHAN_FREQ").flatten()
     tb.close()
     cor_data[flag] = np.nan
@@ -46,12 +48,13 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
     yx_model = model_data[2, ...]
     argument = xy_data * xy_model.conjugate() + yx_data.conjugate() * yx_model
     crossphase = np.angle(np.nansum(argument, axis=1), deg=True)
-    np.save(caltable, [freqs, crossphase])
-    os.system('rm -rf '+msname.split('.ms')[0]+'_kcrosscal.ms')
+    chan_flags=get_chans_flags(msname)
+    np.save(caltable, np.array([freqs, crossphase, chan_flags],dtype='object'))
+    os.system('mv '+caltable+'.npy '+caltable)
     return caltable
 
 
-def apply_crossphasecal(msname, gaintable="", datacolumn="DATA"):
+def apply_crossphasecal(msname, gaintable="", datacolumn="DATA", applymode="calflag", flagbackup=True):
     """
     Apply crosshand phase on the data
     Parameters
@@ -62,23 +65,53 @@ def apply_crossphasecal(msname, gaintable="", datacolumn="DATA"):
         Crosshand phase gaintable
     datacolumn : str
         Data column to read and modify the same data column
+    applymode : str
+        Apply calibration and flags    
+    flagbackup : bool
+        Keep backup of the flags before applying solutions    
     """
     if gaintable == "":
         print("Please provide gain table name.\n")
         return
-    freqs, crossphase = np.load(gaintable, allow_pickle=True)
+    freqs, crossphase, chan_flags = np.load(gaintable, allow_pickle=True)
+    freqs=freqs.astype('float32')
+    crossphase=crossphase.astype('float32')
+    crossphase=np.deg2rad(crossphase)
+    pos=np.where(chan_flags==True)
+    crossphase[pos]=0.0
+    if flagbackup:
+        af=agentflagger()
+        af.open(msname)
+        versionlist=af.getflagversionlist()
+        if len(versionlist)!=0:
+            for version_name in versionlist:
+                if 'apply_crossphasecal' in version_name:
+                    try:
+                        version_num=int(version_name.split(':')[0].split(' ')[0].split('_')[-1])+1
+                    except:
+                        version_num=1
+                else:
+                    version_num=1
+        else:
+            version_num=1
+        now = datetime.now()
+        dt_string = now.strftime("%Y-%m-%d %H:%M:%S")
+        af.saveflagversion('apply_crossphasecal_'+str(version_num),'Flags autosave on '+dt_string)
+        af.done()
     tb = table(msname, nomodify=False)
     data = tb.getcol(datacolumn)
-    crossphase_rad = np.repeat(
-        np.deg2rad(crossphase)[..., np.newaxis], data.shape[-1], axis=-1
-    )
+    crossphase = np.repeat(crossphase[..., np.newaxis], data.shape[-1], axis=-1)
     xy_data = data[1, ...]
     yx_data = data[2, ...]
-    xy_data_cor = np.exp(1j * crossphase_rad) * xy_data
-    yx_data_cor = np.exp(-1j * crossphase_rad) * yx_data
+    xy_data_cor = np.exp(1j * crossphase) * xy_data
+    yx_data_cor = np.exp(-1j * crossphase) * yx_data
     data[1, ...] = xy_data_cor
     data[2, ...] = yx_data_cor
     tb.putcol(datacolumn, data)
+    if applymode=='calflag':
+        flag=tb.getcol('FLAG')
+        flag[:,pos,:]=True
+        tb.putcol('FLAG',flag)
     tb.flush()
     tb.close()
     return

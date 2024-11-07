@@ -2,10 +2,11 @@ import os, numpy as np, time, multiprocessing as mp, psutil
 import glob
 from casacore.tables import table as casacore_table, makecoldesc
 from optparse import OptionParser
-os.system('rm -rf casa*log')
+
+os.system("rm -rf casa*log")
 
 
-def import_model(msname,beamfile,sourcelist):
+def import_model(msname, beamfile, sourcelist):
     """
     Simulate visibilities and import in the measurement set
     Parameters
@@ -16,7 +17,7 @@ def import_model(msname,beamfile,sourcelist):
         Beam file name
     sourcelist : str
         Source file name
-    """            
+    """
     try:
         starttime = time.time()
         metafits = (
@@ -84,13 +85,13 @@ def import_model(msname,beamfile,sourcelist):
         model_array = np.empty((len(baselines), nchan, npol), dtype="complex")
         model_array[pos, ...] = m_array
         model_array[~pos, ...] = 0.0
-        column_names = model_table.colnames()
+        column_names = data_table.colnames()
         if "MODEL_DATA" in column_names:
             data_table.putcol("MODEL_DATA", model_array)
         else:
             coldesc = makecoldesc("MODEL_DATA", model_table.getcoldesc("DATA"))
-        data_table.addcols(coldesc)
-        data_table.putcol("MODEL_DATA", model_array)
+            data_table.addcols(coldesc)
+            data_table.putcol("MODEL_DATA", model_array)
         data_table.close()
         model_table.close()
         del m_array, model_array
@@ -100,10 +101,12 @@ def import_model(msname,beamfile,sourcelist):
         return 0
     except Exception as e:
         print("Model simulation and import failed for : ", msname)
+        print ('Exception:',e)
         os.system("rm -rf casa*log")
         return 1
 
-################################        
+
+################################
 def main():
     usage = "Simulate and import visibilities"
     parser = OptionParser(usage=usage)
@@ -128,19 +131,20 @@ def main():
         help="Source model file",
         metavar="String",
     )
-    if options.msname==None:
-        print ('Please provide the measurement set name.\n')
+    (options, args) = parser.parse_args()
+    if options.msname == None:
+        print("Please provide the measurement set name.\n")
         return 1
-    if options.beamfile==None:
-        print ('Please provide the MWA PB file.\n')
+    if options.beamfile == None:
+        print("Please provide the MWA PB file.\n")
         return 1
-    if options.sourcelist==None:
-        print ('Please provide the sourcelist file.\n')
-        return 1    
-    msg=import_model(options.msname,options.beamfile,options.sourcelist)
+    if options.sourcelist == None:
+        print("Please provide the sourcelist file.\n")
+        return 1
+    msg = import_model(options.msname, options.beamfile, options.sourcelist)
     return msg
 
-if __name__ == "__main__":
-    result=main()
-    os._exit(result)  
 
+if __name__ == "__main__":
+    result = main()
+    os._exit(result)

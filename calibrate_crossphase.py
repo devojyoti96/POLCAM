@@ -1,8 +1,9 @@
 import numpy as np, os
-from casatools import table,agentflagger
+from casatools import table,agentflagger,msmetadata
 from casatasks import applycal, split
 from basic_func import  get_chans_flags
 from datetime import datetime
+from scipy.interpolate import interp1d
 os.system("rm -rf casa*log")
 
 
@@ -77,11 +78,16 @@ def apply_crossphasecal(msname, gaintable="", datacolumn="DATA", applymode="calf
     freqs=freqs.astype('float32')
     crossphase=crossphase.astype('float32')
     crossphase=np.deg2rad(crossphase)
-    pos=np.where(chan_flags==True)
-    crossphase[pos]=0.0
+    pos=np.where(chan_flags==False)
+    f = interp1d(freqs[pos], crossphase[pos], kind='linear', fill_value='extrapolate')
+    msmd=msmetadata()
+    msmd.open(msname)
+    ms_freq=msmd.chanfreqs(0)
+    msmd.close()  
+    crossphase=f(ms_freq)  
     if flagbackup:
         af=agentflagger()
-        af.open(msname)
+        af.open(msname)                                                                            
         versionlist=af.getflagversionlist()
         if len(versionlist)!=0:
             for version_name in versionlist:

@@ -26,7 +26,6 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
             Name of the caltable
     """
     if len(gaintable) > 0:
-        print ('applycal(vis=\''+msname+'\',gaintable='+str(gaintable)+', applymode=\"calflag\", flagbackup=True)\n')
         applycal(vis=msname, gaintable=gaintable, applymode="calflag", flagbackup=True)
         datacolumn = "CORRECTED_DATA"
     else:

@@ -6,7 +6,7 @@ from optparse import OptionParser
 os.system("rm -rf casa*log")
 
 
-def import_model(msname, beamfile, sourcelist):
+def import_model(msname, beamfile, sourcelist, ncpu=-1):
     """
     Simulate visibilities and import in the measurement set
     Parameters
@@ -17,7 +17,11 @@ def import_model(msname, beamfile, sourcelist):
         Beam file name
     sourcelist : str
         Source file name
+    ncpu : int
+        Number of cpu threads to use    
     """
+    if ncpu>0:
+        os.environ['RAYON_NUM_THREADS']=str(ncpu)
     try:
         starttime = time.time()
         metafits = (
@@ -72,6 +76,7 @@ def import_model(msname, beamfile, sourcelist):
         )
         print(hyperdrive_cmd + "\n")
         os.system(hyperdrive_cmd + " > tmp_" + os.path.basename(msname).split(".ms")[0])
+        os.system("rm -rf tmp_" + os.path.basename(msname).split(".ms")[0])
         model_msname = msname.split(".ms")[0] + "_model.ms"
         ########################
         # Importing model
@@ -131,6 +136,13 @@ def main():
         help="Source model file",
         metavar="String",
     )
+    parser.add_option(
+        "--ncpu",
+        dest="ncpu",
+        default=-1,
+        help="Numbers of CPU threads to be used",
+        metavar="Integer",
+    )
     (options, args) = parser.parse_args()
     if options.msname == None:
         print("Please provide the measurement set name.\n")
@@ -141,7 +153,7 @@ def main():
     if options.sourcelist == None:
         print("Please provide the sourcelist file.\n")
         return 1
-    msg = import_model(options.msname, options.beamfile, options.sourcelist)
+    msg = import_model(options.msname, options.beamfile, options.sourcelist, ncpu = int(options.ncpu))
     return msg
 
 

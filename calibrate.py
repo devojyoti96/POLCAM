@@ -51,7 +51,8 @@ def do_flag_cal(msname, refant, uvrange=""):
             + "\n#######################\n"
         )
         if uvrange=='':
-            uvrange=get_calibration_uvrange(msname)   
+            uvrange=get_calibration_uvrange(msname) 
+        os.system("rm -rf "+caltable_prefix + ".bcal")      
         bandpass(
             vis=msname,
             caltable=caltable_prefix + ".bcal",
@@ -60,6 +61,7 @@ def do_flag_cal(msname, refant, uvrange=""):
             uvrange=uvrange,
         )
         print("Estimating crosshand phase...\n")
+        os.system("rm -rf "+caltable_prefix + ".kcross")     
         crossphase_caltable = crossphasecal(
             msname,
             uvrange=uvrange,

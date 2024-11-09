@@ -1,4 +1,4 @@
-from casatasks import applycal
+from casatasks import applycal, flagdata
 from calibrate_crossphase import apply_crossphasecal
 from optparse import OptionParser
 import os
@@ -40,6 +40,7 @@ def apply_sol(
             applymode=applymode,
             flagbackup=flagbackup,
         )
+        print ('Calibration solutions applied.\n')
         return 0
     except Exception as e:
         print("Exception: ", e)
@@ -85,6 +86,13 @@ def main():
         help="Keep flag backup before applying solutions or not",
         metavar="Boolean",
     )
+    parser.add_option(
+        "--do_flag",
+        dest="do_flag",
+        default=True,
+        help="Perform flagging or not",
+        metavar="Boolean",
+    )
     (options, args) = parser.parse_args()
     if options.msname == None:
         print("Please provide the measurement set name.\n")
@@ -95,6 +103,9 @@ def main():
     if options.bandpass_table == None:
         print("Please provide the crosshand phase table name.\n")
         return 1
+    if eval(options.do_flag):
+        print("Flagging: " + options.msname)
+        flagdata(vis=options.msname, mode="tfcrop")    
     msg = apply_sol(
         options.msname,
         options.bandpass_table,

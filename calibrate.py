@@ -3,7 +3,7 @@ from casatools import table
 from calibrate_crossphase import crossphasecal
 from optparse import OptionParser
 from basic_func import *
-import os
+import os, gc, traceback
 
 os.system("rm -rf casa*log")
 
@@ -68,9 +68,11 @@ def do_flag_cal(msname, refant, uvrange=""):
             caltable=caltable_prefix + ".kcross",
             gaintable=[caltable_prefix + ".bcal"],
         )
+        gc.collect() 
         return 0, caltable_prefix + ".bcal", crossphase_caltable
     except Exception as e:
-        print ('Exception: ',e)
+        traceback.print_exc()
+        gc.collect() 
         return 1, None, None
 
 
@@ -126,7 +128,8 @@ def main():
         os.system("mv " + kcrosscal + " " + caldir)
         print("Caltable names: " + str(bcal) + "," + str(kcrosscal))
     else:
-        print ("Issues occured")    
+        print ("Issues occured")  
+    gc.collect()      
     return msg
 
 

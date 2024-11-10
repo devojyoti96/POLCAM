@@ -1,4 +1,4 @@
-import glob,os,psutil
+import glob,os,psutil,traceback, gc
 from basic_func import *
 from optparse import OptionParser
 os.system("rm -rf casa*log")
@@ -56,9 +56,11 @@ def perform_model_import(msdir,basedir,cpu_percent=10,mem_percent=20):
             if len(finished_files)>=count:
                 break
         print ("#####################\nModel import jobs are finished successfully.\n#####################\n")
+        gc.collect()
         return 0
     except Exception as e:
-        print ('Exception occured in model import: ',e)
+        traceback.print_exc()
+        gc.collect()
         print ("#####################\nModel import jobs are finished unsuccessfully.\n#####################\n")
         return 1            
 
@@ -101,19 +103,24 @@ def perform_all_calibration(msdir,basedir,refant=1,cpu_percent=10,mem_percent=20
             os.system("bash " + batch_file)
             print ('Spawned command: '+cmd+'\n')
             count+=1
-            if free_jobs>0:
-                free_jobs-=1
-            if count>=max_jobs or free_jobs==0:
+            '''if free_jobs>0:
+                free_jobs-=1'''
+            if count>=max_jobs:# or free_jobs==0:
                 free_jobs = wait_for_resources(basedir+'/.Finished_calibrate', cpu_threshold=cpu_percent, memory_threshold=mem_percent)
-                print ('Freed jobs: ',free_jobs)
+                total_memory=psutil.virtual_memory().available/(1024**3) # In GB
+                max_jobs=int(total_memory/mssize)
+                count=0
+                print ('Maximum freed jobs: ',max_jobs)
         while True:
             finished_files=glob.glob(basedir+'/.Finished_calibrate*')    
             if len(finished_files)>=count:
                 break    
         print ("#####################\nCalibration jobs are finished successfully.\n#####################\n")
+        gc.collect()
         return 0        
     except Exception as e:
-        print ('Exception occured in performing calibration: ',e)
+        traceback.print_exc()
+        gc.collect()
         print ("#####################\nCalibration jobs are finished unsuccessfully.\n#####################\n")
         return 1            
             
@@ -190,9 +197,11 @@ def perform_all_applycal(msdir,caldir,basedir,do_flag=True,cpu_percent=10,mem_pe
             if len(finished_files)>=count:
                 break
         print ("#####################\nApply calibration solution jobs are finished unsuccessfully.\n#####################\n")
+        gc.collect()
         return 0
     except Exception as e:
-        print ('Exception occured in applying solutions: ', e)  
+        traceback.print_exc()
+        gc.collect()
         print ("#####################\nApply calibration solution jobs are finished unsuccessfully.\n#####################\n") 
         return 1        
                        
@@ -244,6 +253,13 @@ def main():
         metavar="Boolean",
     )
     parser.add_option(
+        "--import_model",
+        dest="import_model",
+        default=True,
+        help="Import model or not",
+        metavar=True,
+    )
+    parser.add_option(
         "--free_cpu_percent",
         dest="cpu_percent",
         default=10,
@@ -268,31 +284,47 @@ def main():
         os.makedirs(options.basedir)
     
     if options.calms_dir!=None:
-        os.system("rm -rf "+options.calms_dir+'/*model.ms* '+options.calms_dir+'/*.bcal')
-        msg=perform_model_import(options.calms_dir,options.basedir,cpu_percent=float(options.cpu_percent),mem_percent=float(options.mem_percent))
+        os.system("rm -rf "+options.calms_dir+'/*model.ms*')
+        os.system("rm -rf "+options.calms_dir+'/*.bcal')
+        if eval(str(options.import_model))==True:
+            msg=perform_model_import(options.calms_dir,options.basedir,cpu_percent=float(options.cpu_percent),mem_percent=float(options.mem_percent))
+            gc.collect() 
+        else:
+            msg=0    
         if msg==1:
             return 1
         else:
             msg=perform_all_calibration(options.calms_dir,options.basedir,refant=int(options.refant),cpu_percent=float(options.cpu_percent),\
                                         mem_percent=float(options.mem_percent))
+            gc.collect()                            
             if msg==1:
                 return 1
-            else:
+            elif options.targetms_dir!=None:
                 caldir=options.basedir+'/caldir'
-                msg = perform_all_applycal(options.calms_dir,caldir,options.basedir,do_flag=eval(str(options.do_target_flag)),\
+                msg = perform_all_applycal(options.targetms_dir,caldir,options.basedir,do_flag=eval(str(options.do_target_flag)),\
                         cpu_percent=float(options.cpu_percent),mem_percent=float(options.mem_percent))                              
+                gc.collect() 
                 if msg ==1:
                     return 1
-    else:
-        msg = perform_all_applycal(options.calms_dir,options.caltable_dir,options.basedir,do_flag=eval(str(options.do_target_flag)),\
+                else:
+                    return 0 
+            else:
+                return 0                               
+    elif options.targetms_dir!=None:
+        msg = perform_all_applycal(options.targetms_dir,options.caltable_dir,options.basedir,do_flag=eval(str(options.do_target_flag)),\
                         cpu_percent=float(options.cpu_percent),mem_percent=float(options.mem_percent))                              
+        gc.collect() 
         if msg ==1:
-            return 1            
+            return 1 
+        else:
+            return 0               
                     
 
 if __name__ == "__main__":
     result = main()
-    os._exit(result)           
+    os._exit(result)   
+    gc.collect()
+        
            
            
            

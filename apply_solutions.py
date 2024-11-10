@@ -1,7 +1,7 @@
 from casatasks import applycal, flagdata
 from calibrate_crossphase import apply_crossphasecal
 from optparse import OptionParser
-import os
+import os, gc, traceback
 
 os.system("rm -rf casa*log")
 
@@ -41,9 +41,11 @@ def apply_sol(
             flagbackup=flagbackup,
         )
         print ('Calibration solutions applied.\n')
+        gc.collect() 
         return 0
     except Exception as e:
-        print("Exception: ", e)
+        traceback.print_exc()
+        gc.collect() 
         return 1
 
 

@@ -145,6 +145,7 @@ def main():
         help="Memory in GB to be used",
         metavar="Float",
     )
+    (options, args) = parser.parse_args()
     if options.msname==None:
         print ('Please provide the measurement set name.\n')
         return 1   

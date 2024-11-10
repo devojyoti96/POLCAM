@@ -7,6 +7,8 @@ from astropy.coordinates import EarthLocation, SkyCoord, AltAz
 from casatasks import exportfits, importfits
 from optparse import OptionParser
 
+os.system("rm -rf casa*log")
+
 """
 Code is written by Devojyoti Kansabanik, 25 Sep, 2024
 """
@@ -942,9 +944,9 @@ def main():
         )
         return 0
     except:
-        return 1        
+        return 1
 
 
 if __name__ == "__main__":
-    result=main()
+    result = main()
     os._exit(result)

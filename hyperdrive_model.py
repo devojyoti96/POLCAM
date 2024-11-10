@@ -1,5 +1,4 @@
-import os, numpy as np, time, multiprocessing as mp, psutil
-import glob
+import os, numpy as np, time, multiprocessing as mp, psutil, glob, traceback, gc
 from casacore.tables import table as casacore_table, makecoldesc
 from optparse import OptionParser
 
@@ -103,10 +102,12 @@ def import_model(msname, beamfile, sourcelist, ncpu=-1):
         print("Model import done in : " + str(time.time() - starttime) + "s")
         os.system("rm -rf casa*log")
         os.system("rm -rf " + model_msname)
+        gc.collect()
         return 0
     except Exception as e:
         print("Model simulation and import failed for : ", msname)
-        print ('Exception:',e)
+        traceback.print_exc()
+        gc.collect()
         os.system("rm -rf casa*log")
         return 1
 

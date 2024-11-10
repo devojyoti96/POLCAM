@@ -329,7 +329,7 @@ def check_resource_availability(cpu_threshold=20, memory_threshold=20):
     # Check Swap Memory availability
     # Check Swap availability
     swap = psutil.swap_memory()
-    swap_available = swap.free / swap.total * 100 if swap.total > 0 else 100  # 100% if no swap is configured
+    swap_available = swap.free / swap.total * 100 if swap.total > 0 else 0  # 0% if no swap is configured
     swap_sufficient = swap_available > memory_threshold
     return cpu_available and memory_sufficient and swap_sufficient
 
@@ -362,11 +362,11 @@ def wait_for_resources(finished_file_prefix, cpu_threshold=20, memory_threshold=
             else:   
                 if count==0:
                     print ('Waiting for free hardware resources ....\n')  
-                time.sleep(10) 
+                time.sleep(1) 
         else: 
             if count==0:
                 print ('Waiting for free hardware resources ....\n')  
-            time.sleep(10)
+            time.sleep(1)
         count+=1     
         
         

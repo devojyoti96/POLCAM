@@ -1,5 +1,5 @@
 from casatools import table, msmetadata
-import numpy as np,os, psutil, time, glob
+import numpy as np,os, psutil, time, glob, gc
 
 
 def freq_to_MWA_coarse(freq):
@@ -211,7 +211,6 @@ def calc_bw_smearing_freqwidth(msname):
     delta_nu /= 10**6
     return round(delta_nu, 2)
 
-
 def get_calibration_uvrange(msname):
     """
     Calibration baseline range suitable for GLEAM model
@@ -358,14 +357,17 @@ def wait_for_resources(finished_file_prefix, cpu_threshold=20, memory_threshold=
             new_finished_file_list=glob.glob(finished_file_prefix+'*')
             if len(new_finished_file_list)-len(finished_file_list)>0:
                 free_jobs=len(new_finished_file_list)-len(finished_file_list)
+                gc.collect()
                 return free_jobs
             else:   
                 if count==0:
                     print ('Waiting for free hardware resources ....\n')  
+                gc.collect()    
                 time.sleep(1) 
         else: 
             if count==0:
                 print ('Waiting for free hardware resources ....\n')  
+            gc.collect()    
             time.sleep(1)
         count+=1     
         

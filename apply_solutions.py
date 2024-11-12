@@ -7,7 +7,7 @@ os.system("rm -rf casa*log")
 
 
 def apply_sol(
-    msname, bandpass_table, kcross_table, applymode="calflag", flagbackup=True
+    msname, bandpass_table='', kcross_table='', applymode="calflag", flagbackup=True
 ):
     """
     Apply bandpass and crosshand phase solutions
@@ -25,21 +25,27 @@ def apply_sol(
         Keep flag backup before applying solutions
     """
     try:
-        print("Applying bandpass solutons...\n")
-        applycal(
-            vis=msname,
-            gaintable=[bandpass_table],
-            applymode=applymode,
-            flagbackup=flagbackup,
-        )
-        print("Applying crosshand phase solutions...\n")
-        apply_crossphasecal(
-            msname,
-            gaintable=kcross_table,
-            datacolumn="CORRECTED_DATA",
-            applymode=applymode,
-            flagbackup=flagbackup,
-        )
+        if bandpass_table=='' and kcross_table=='':
+            print ('No calibration tables to apply.\n')
+            gc.collect()
+            return 0
+        if bandpass_table!='':
+            print("Applying bandpass solutons from: "+bandpass_table+"\n")
+            applycal(
+                vis=msname,
+                gaintable=[bandpass_table],
+                applymode=applymode,
+                flagbackup=flagbackup,
+            )
+        if kcross_table!='':    
+            print("Applying crosshand phase solutions from: "+kcross_table+"\n")
+            apply_crossphasecal(
+                msname,
+                gaintable=kcross_table,
+                datacolumn="CORRECTED_DATA",
+                applymode=applymode,
+                flagbackup=flagbackup,
+            )
         print ('Calibration solutions applied.\n')
         gc.collect() 
         return 0
@@ -105,13 +111,13 @@ def main():
     if options.bandpass_table == None:
         print("Please provide the crosshand phase table name.\n")
         return 1
-    if eval(options.do_flag):
+    if eval(str(options.do_flag)):
         print("Flagging: " + options.msname)
         flagdata(vis=options.msname, mode="tfcrop")    
     msg = apply_sol(
         options.msname,
-        options.bandpass_table,
-        options.kcross_table,
+        bandpass_table=options.bandpass_table,
+        kcross_table=options.kcross_table,
         applymode=options.applymode,
         flagbackup=eval(str(options.flagbackup)),
     )

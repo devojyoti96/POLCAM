@@ -8,7 +8,7 @@ import os, gc, traceback
 os.system("rm -rf casa*log")
 
 
-def do_flag_cal(msname, refant, uvrange=""):
+def do_flag_cal(msname, refant, uvrange="", do_kcross =True):
     """
     Parameters
     ----------
@@ -18,6 +18,8 @@ def do_flag_cal(msname, refant, uvrange=""):
         Reference antenna index or name
     uvrange : str
         UV-range to be used for calibration
+    do_kcross : bool
+        Perform crosshand phase calibration    
     Returns
     -------
     int
@@ -60,16 +62,20 @@ def do_flag_cal(msname, refant, uvrange=""):
             solint="inf",
             uvrange=uvrange,
         )
-        print("Estimating crosshand phase...\n")
-        os.system("rm -rf "+caltable_prefix + ".kcross")     
-        crossphase_caltable = crossphasecal(
-            msname,
-            uvrange=uvrange,
-            caltable=caltable_prefix + ".kcross",
-            gaintable=[caltable_prefix + ".bcal"],
-        )
-        gc.collect() 
-        return 0, caltable_prefix + ".bcal", crossphase_caltable
+        if do_kcross==False:
+            gc.collect()
+            return 0, caltable_prefix + ".bcal", None
+        else:
+            print("Estimating crosshand phase...\n")
+            os.system("rm -rf "+caltable_prefix + ".kcross")     
+            crossphase_caltable = crossphasecal(
+                msname,
+                uvrange=uvrange,
+                caltable=caltable_prefix + ".kcross",
+                gaintable=[caltable_prefix + ".bcal"],
+            )
+            gc.collect() 
+            return 0, caltable_prefix + ".bcal", crossphase_caltable
     except Exception as e:
         traceback.print_exc()
         gc.collect() 
@@ -93,6 +99,13 @@ def main():
         default="1",
         help="Reference antenna",
         metavar="String",
+    )
+    parser.add_option(
+        "--do_kcross",
+        dest="do_kcross",
+        default=True,
+        help="Perform crosshand phase calibration or not",
+        metavar="Boolean",
     )
     parser.add_option(
         "--uvrange",
@@ -119,14 +132,17 @@ def main():
     if os.path.exists(caldir) == False:
         os.makedirs(caldir)
     msg, bcal, kcrosscal = do_flag_cal(
-        options.msname, options.refant, uvrange=str(options.uvrange)
+        options.msname, options.refant, uvrange=str(options.uvrange), do_kcross = eval(str(options.do_kcross)),
     )
     if msg == 0:
         os.system('rm -rf '+caldir+'/'+os.path.basename(bcal))
         os.system("mv " + bcal + " " + caldir)
-        os.system('rm -rf '+caldir+'/'+os.path.basename(kcrosscal))
-        os.system("mv " + kcrosscal + " " + caldir)
-        print("Caltable names: " + str(bcal) + "," + str(kcrosscal))
+        if kcrosscal!=None:
+            os.system('rm -rf '+caldir+'/'+os.path.basename(kcrosscal))
+            os.system("mv " + kcrosscal + " " + caldir)
+            print("Caltable names: " + str(caldir+'/'+os.path.basename(bcal)) + "," + str(caldir+'/'+os.path.basename(kcrosscal)))
+        else:
+            print("Caltable names: " + str(caldir+'/'+os.path.basename(bcal)))   
     else:
         print ("Issues occured")  
     gc.collect()      

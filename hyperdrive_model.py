@@ -5,13 +5,15 @@ from optparse import OptionParser
 os.system("rm -rf casa*log")
 
 
-def import_model(msname, beamfile, sourcelist, ncpu=-1):
+def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
     """
     Simulate visibilities and import in the measurement set
     Parameters
     ----------
     msname : str
         Name of the measurement set
+    metafits : str
+        Name of the metafits file    
     beamfile : str
         Beam file name
     sourcelist : str
@@ -23,12 +25,6 @@ def import_model(msname, beamfile, sourcelist, ncpu=-1):
         os.environ['RAYON_NUM_THREADS']=str(ncpu)
     try:
         starttime = time.time()
-        metafits = (
-            os.path.dirname(os.path.abspath(msname))
-            + "/"
-            + os.path.basename(msname).split(".ms")[0].split("_")[0]
-            + ".metafits"
-        )
         print(
             "#######################\nImporting model for ms:"
             + msname
@@ -124,6 +120,13 @@ def main():
         metavar="String",
     )
     parser.add_option(
+        "--metafits",
+        dest="metafits",
+        default=None,
+        help="Name of the metafits file",
+        metavar="String",
+    )
+    parser.add_option(
         "--beamfile",
         dest="beamfile",
         default=None,
@@ -148,13 +151,16 @@ def main():
     if options.msname == None:
         print("Please provide the measurement set name.\n")
         return 1
+    if options.metafits == None:
+        print("Please provide the metafits file name.\n")
+        return 1    
     if options.beamfile == None:
         print("Please provide the MWA PB file.\n")
         return 1
     if options.sourcelist == None:
         print("Please provide the sourcelist file.\n")
         return 1
-    msg = import_model(options.msname, options.beamfile, options.sourcelist, ncpu = int(options.ncpu))
+    msg = import_model(options.msname, options.metafits, options.beamfile, options.sourcelist, ncpu = int(options.ncpu))
     return msg
 
 

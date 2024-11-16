@@ -1,4 +1,4 @@
-import mwa_hyperbeam, os, astropy, numpy as np, datetime, time, skyfield.api as si, warnings, erfa, glob
+import mwa_hyperbeam, os, astropy, numpy as np, datetime, time, skyfield.api as si, warnings, erfa, glob, traceback, gc
 from astropy.io import fits
 import astropy.wcs as pywcs
 from astropy.time import Time
@@ -6,6 +6,8 @@ from numpy.linalg import inv
 from astropy.coordinates import EarthLocation, SkyCoord, AltAz
 from casatasks import exportfits, importfits
 from optparse import OptionParser
+from scipy.interpolate import RectBivariateSpline
+from joblib import Parallel, delayed
 
 os.system("rm -rf casa*log")
 
@@ -19,32 +21,6 @@ MWAPOS = EarthLocation.from_geodetic(
     lon="116:40:14.93", lat="-26:42:11.95", height=377.8
 )
 ######################################################################
-
-
-def altaz_to_parallactic_angle(alt, az, LAT):
-    """
-    Function to calculate parallactic angle given Altitude, Azimuith of the source and Latitude on the observatory
-    Parameters
-    ----------
-    alt : float
-            Altitude in degree
-    az : float
-            Azimuith in degree
-    lat : float
-            Latitude in degree
-    Returns
-    -------
-    float
-            Parallactic angle in radian
-    """
-    alt = np.deg2rad(alt)
-    az = np.deg2rad(az)
-    lat = np.deg2rad(LAT)
-    p = -np.arctan2(
-        np.sin(az) * np.cos(lat),
-        np.cos(alt) * np.sin(lat) - np.sin(alt) * np.cos(lat) * np.cos(az),
-    )
-    return p
 
 
 def get_azza_from_fits(filename, metafits="", verbose=False):
@@ -92,11 +68,9 @@ def get_azza_from_fits(filename, metafits="", verbose=False):
     # if we have a cube this will have to change
     ff = 1
     Y, X = np.meshgrid(y, x)
-
     Xflat = X.flatten()
     Yflat = Y.flatten()
     FF = ff * np.ones(Xflat.shape)
-
     if naxes >= 4:
         Tostack = [Xflat, Yflat, FF]
         for i in range(3, naxes):
@@ -104,24 +78,17 @@ def get_azza_from_fits(filename, metafits="", verbose=False):
     else:
         Tostack = [Xflat, Yflat]
     pixcrd = np.vstack(Tostack).transpose()
-
     try:
-        # Convert pixel coordinates to world coordinates
-        # The second argument is "origin" -- in this case we're declaring we
-        # have 1-based (Fortran-like) coordinates.
         sky = wcs.wcs_pix2world(pixcrd, 1)
     except Exception as e:
         print("Problem converting to WCS: %s" % e)
         return None
-
     # extract the important pieces
     ra = sky[:, 0]
     dec = sky[:, 1]
-
     # and make them back into arrays
     RA = ra.reshape(X.shape)
     Dec = dec.reshape(Y.shape)
-
     # get the date so we can convert to Az,El
     if os.path.exists(metafits) == False:
         try:
@@ -132,7 +99,6 @@ def get_azza_from_fits(filename, metafits="", verbose=False):
     else:
         metadata = fits.getheader(metafits)
         d = metadata["DATE-OBS"]
-
     if "." in d:
         d = d.split(".")[0]
     dt = datetime.datetime.strptime(d, "%Y-%m-%dT%H:%M:%S")
@@ -151,17 +117,15 @@ def get_azza_from_fits(filename, metafits="", verbose=False):
     )
     source.location = MWAPOS
     source.obstime = mwatime
-
+    s = time.time()
     source_altaz = source.transform_to("altaz")
     Alt, Az = (
         source_altaz.alt.deg,
         source_altaz.az.deg,
     )  # Transform to Topocentric Alt/Az at the current epoch
-
     # go from altitude to zenith angle
     theta = (90 - Alt) * np.pi / 180
     phi = Az * np.pi / 180
-
     return {"za_rad": theta.transpose(), "astro_az_rad": phi.transpose()}
 
 
@@ -226,6 +190,174 @@ def B2IQUV(B, iau_order=False):
     return stokes
 
 
+def all_sky_beam_interpolator(
+    MWA_PB_file, sweet_spot_file, sweet_spot_num, freq, resolution, iau_order
+):
+    """
+    Calculate all sky beam interpolation for given sweet spot pointing
+    Parameters
+    ----------
+    MWA_PB_file : str
+        MWA primary beam file
+    sweet_spot_file : str
+        MWA sweet spot file name
+    sweet_spot_num : int
+        Sweet spot number
+    freq : float
+        Frequency in MHz
+    resolution : float
+        Spatial resolution in degree
+    iau_order : bool
+        PB Jones in IAU order or not
+    Returns
+    -------
+    numpy.array
+        All sky primary beam Jones array
+    """
+    os.environ["MWA_BEAM_FILE"] = MWA_PB_file
+    beam = mwa_hyperbeam.FEEBeam()
+    az_scale = np.arange(0, 360, resolution)
+    alt_scale = np.arange(0, 90, resolution)
+    az, alt = np.meshgrid(az_scale, alt_scale)
+    za_rad = np.deg2rad(90 - alt.ravel())  # Zenith angle in radian
+    az_rad = np.deg2rad(az.ravel())  # Azimuth in radian
+    sweet_spots = np.load(sweet_spot_file, allow_pickle=True).all()
+    delay = sweet_spots[int(sweet_spot_num)][-1]
+    ##############################################
+    # Calculating Jones array in 1 deg alt-az grid
+    ##############################################
+    jones = beam.calc_jones_array(
+        az_rad,
+        za_rad,
+        freq,
+        delay,
+        [1] * 16,
+        True,
+        np.deg2rad(MWALAT),
+        iau_order,
+    )
+    jones = jones.swapaxes(0, 1).reshape(4, alt_scale.shape[0], az_scale.shape[0])
+    j00_r = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.real(jones[0, ...]))
+    )
+    j00_i = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.imag(jones[0, ...]))
+    )
+    j01_r = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.real(jones[1, ...]))
+    )
+    j01_i = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.imag(jones[1, ...]))
+    )
+    j10_r = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.real(jones[2, ...]))
+    )
+    j10_i = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.imag(jones[2, ...]))
+    )
+    j11_r = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.real(jones[3, ...]))
+    )
+    j11_i = RectBivariateSpline(
+        x=alt_scale, y=az_scale, z=np.nan_to_num(np.imag(jones[3, ...]))
+    )
+    return j00_r, j00_i, j01_r, j01_i, j10_r, j10_i, j11_r, j11_i
+
+
+def get_jones_array(
+    alt_arr,
+    az_arr,
+    freq,
+    MWA_PB_file,
+    sweet_spot_file,
+    gridpoint,
+    iau_order,
+    interpolated,
+):
+    """
+    Get primary beam jones matrix
+    Parameters
+    ----------
+    alt_arr : numpy.array
+        Flattened altitude array in degrees
+    az_arr : numpy.array
+        Flattened azimuth array in degrees
+    MWA_PB_file : str
+        Primary beam file name
+    sweet_spot_file : str
+        MWA sweet spot file name
+    gridpoint : int
+        Gridpoint number
+    iau_order : bool
+        IAU order of the beam
+    interpolated : bool
+        Use spatially interpolated beams or not
+    Returns
+    -------
+    numpy.array
+        Jones array (shape : coordinate_arr_shape, 2 ,2)
+    """
+    if interpolated:
+        print("Using interpolated beam ....\n")
+        s = time.time()
+        j00_r, j00_i, j01_r, j01_i, j10_r, j10_i, j11_r, j11_i = (
+            all_sky_beam_interpolator(
+                MWA_PB_file, sweet_spot_file, int(gridpoint), freq, 1.0, iau_order
+            )
+        )
+        # Change resolution based on frequency
+        za_arr = 90 - alt_arr
+        s = time.time()
+        results = Parallel(n_jobs=8)(
+            [
+                delayed(j00_r)(alt_arr, az_arr, grid=False),
+                delayed(j00_i)(alt_arr, az_arr, grid=False),
+                delayed(j01_r)(alt_arr, az_arr, grid=False),
+                delayed(j01_i)(alt_arr, az_arr, grid=False),
+                delayed(j10_r)(alt_arr, az_arr, grid=False),
+                delayed(j10_i)(alt_arr, az_arr, grid=False),
+                delayed(j11_r)(alt_arr, az_arr, grid=False),
+                delayed(j11_i)(alt_arr, az_arr, grid=False),
+            ]
+        )
+        (
+            j00_r_arr,
+            j00_i_arr,
+            j01_r_arr,
+            j01_i_arr,
+            j10_r_arr,
+            j10_i_arr,
+            j11_r_arr,
+            j11_i_arr,
+        ) = results
+        j00 = j00_r_arr + 1j * j00_i_arr
+        j01 = j01_r_arr + 1j * j01_i_arr
+        j10 = j10_r_arr + 1j * j10_i_arr
+        j11 = j11_r_arr + 1j * j11_i_arr
+        j00 = j00.reshape(az_arr.shape)
+        j01 = j01.reshape(az_arr.shape)
+        j10 = j10.reshape(az_arr.shape)
+        j11 = j11.reshape(az_arr.shape)
+        jones_array = np.array([j00, j01, j10, j11]).T
+    else:
+        beam = mwa_hyperbeam.FEEBeam(MWA_PB_file)
+        sweet_spots = np.load(sweet_spot_file, allow_pickle=True).all()
+        delay = sweet_spots[int(gridpoint)][-1]
+        jones_array = beam.calc_jones_array(
+            np.deg2rad(az_arr),
+            np.deg2rad(za_arr),
+            freq,
+            delay,
+            [1] * 16,
+            True,
+            np.deg2rad(MWALAT),
+            iau_order,
+        )
+    jones_array = jones_array.reshape(jones_array.shape[0], 2, 2)
+    gc.collect()
+    return jones_array
+
+
 def mwapb_cor(
     imagename,
     outfile,
@@ -236,6 +368,7 @@ def mwapb_cor(
     pb_jones_file="",
     save_pb_file="",
     differential_pb=False,
+    interpolated=True,
     verbose=False,
     gridpoint=-1,
     nthreads=1,
@@ -262,6 +395,8 @@ def mwapb_cor(
             Save primary beam jones matrices for future use in this file
     differential_pb : bool
             Correct using differential primary beam
+    interpolated : bool
+        Calculate spatially interpolated beams or not
     verbose : bool
             Verbose output or not
     gridpoint : int
@@ -428,11 +563,9 @@ def mwapb_cor(
                     org_stokes = "IQUV"
             imagetype = "CASA"
         except Exception as e:
-            print(
-                "Image is not in fits or CASA image format. Error occured : "
-                + str(e)
-                + "\n"
-            )
+            print("Image is not in fits or CASA image format.\n")
+            traceback.print_exc()
+            gc.collect()
             return 1
     if restore == False:
         print(
@@ -466,6 +599,7 @@ def mwapb_cor(
     if metafits == None or os.path.isfile(metafits) == False:
         if gridpoint == -1:
             print("Either provide correct metafits file or grid point number.\n")
+            gc.collect()
             return 1
         else:
             sweet_spots = np.load(sweet_spot_file, allow_pickle=True).all()
@@ -485,17 +619,16 @@ def mwapb_cor(
         if differential_pb:
             if verbose:
                 print("Calculating MWA differential primary beam...\n")
-            jones_array = beam.calc_jones_array(
-                alt_az_array["astro_az_rad"].flatten(),
-                alt_az_array["za_rad"].flatten(),
+            jones_array = get_jones_array(
+                90 - np.rad2deg(alt_az_array["za_rad"].flatten()),
+                np.rad2deg(alt_az_array["astro_az_rad"].flatten()),
                 freq,
-                delay,
-                [1] * 16,
-                True,
-                np.deg2rad(MWALAT),
+                MWA_PB_file,
+                sweet_spot_file,
+                gridpoint,
                 iau_order,
+                interpolated,
             )
-            jones_array = jones_array.reshape(jones_array.shape[0], 2, 2)
             image_header = fits.getheader(fitsfile)
             radeg = image_header["CRVAL1"]
             decdeg = image_header["CRVAL2"]
@@ -515,17 +648,16 @@ def mwapb_cor(
         else:
             if verbose:
                 print("Calculating MWA primary beam...\n")
-            jones_array = beam.calc_jones_array(
-                alt_az_array["astro_az_rad"].flatten(),
-                alt_az_array["za_rad"].flatten(),
+            jones_array = get_jones_array(
+                90 - np.rad2deg(alt_az_array["za_rad"].flatten()),
+                np.rad2deg(alt_az_array["astro_az_rad"].flatten()),
                 freq,
-                delay,
-                [1] * 16,
-                True,
-                np.deg2rad(MWALAT),
+                MWA_PB_file,
+                sweet_spot_file,
+                gridpoint,
                 iau_order,
+                interpolated,
             )
-            jones_array = jones_array.reshape(jones_array.shape[0], 2, 2)
         if save_pb_file != "":
             if verbose:
                 print(
@@ -554,17 +686,16 @@ def mwapb_cor(
             if differential_pb:
                 if verbose:
                     print("Calculating MWA differential primary beam...\n")
-                jones_array = beam.calc_jones_array(
-                    alt_az_array["astro_az_rad"].flatten(),
-                    alt_az_array["za_rad"].flatten(),
+                jones_array = get_jones_array(
+                    90 - np.rad2deg(alt_az_array["za_rad"].flatten()),
+                    np.rad2deg(alt_az_array["astro_az_rad"].flatten()),
                     freq,
-                    delay,
-                    [1] * 16,
-                    True,
-                    np.deg2rad(MWALAT),
+                    MWA_PB_file,
+                    sweet_spot_file,
+                    gridpoint,
                     iau_order,
+                    interpolated,
                 )
-                jones_array = jones_array.reshape(jones_array.shape[0], 2, 2)
                 image_header = fits.getheader(fitsfile)
                 radeg = image_header["CRVAL1"]
                 decdeg = image_header["CRVAL2"]
@@ -588,17 +719,16 @@ def mwapb_cor(
             else:
                 if verbose:
                     print("Calculating MWA primary beam...\n")
-                jones_array = beam.calc_jones_array(
-                    alt_az_array["astro_az_rad"].flatten(),
-                    alt_az_array["za_rad"].flatten(),
+                jones_array = get_jones_array(
+                    90 - np.rad2deg(alt_az_array["za_rad"].flatten()),
+                    np.rad2deg(alt_az_array["astro_az_rad"].flatten()),
                     freq,
-                    delay,
-                    [1] * 16,
-                    True,
-                    np.deg2rad(MWALAT),
+                    MWA_PB_file,
+                    sweet_spot_file,
+                    gridpoint,
                     iau_order,
+                    interpolated,
                 )
-                jones_array = jones_array.reshape(jones_array.shape[0], 2, 2)
     if verbose:
         print("Correcting image using primary beam....\n")
     imagedata = fits.getdata(fitsfile)
@@ -796,6 +926,7 @@ def mwapb_cor(
             + image_extension
             + "\n"
         )
+        gc.collect()
         return (
             os.path.dirname(os.path.abspath(imagename))
             + "/"
@@ -811,6 +942,7 @@ def mwapb_cor(
             )
         print("Output image written to : " + output_fitsfile + "\n")
         os.system("rm -rf casa*log")
+        gc.collect()
         return output_fitsfile
 
 
@@ -916,6 +1048,13 @@ def main():
         metavar="Boolean",
     )
     parser.add_option(
+        "--interpolated",
+        dest="interpolated",
+        default=False,
+        help="Interpolated beam",
+        metavar="Boolean",
+    )
+    parser.add_option(
         "--verbose",
         dest="verbose",
         default=False,
@@ -924,6 +1063,7 @@ def main():
     )
     (options, args) = parser.parse_args()
     nthreads = int(options.nthreads)
+    start_time = time.time()
     try:
         mwapb_cor(
             str(options.imagename),
@@ -940,10 +1080,16 @@ def main():
             restore=eval(str(options.restore)),
             save_pb_file=options.save_pb,
             differential_pb=eval(str(options.differential_pb)),
+            interpolated=eval(str(options.interpolated)),
             output_stokes=options.output_stokes,
         )
+        print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
+        gc.collect()
         return 0
-    except:
+    except Exception as e:
+        traceback.print_exc()
+        gc.collect()
+        print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
         return 1
 
 

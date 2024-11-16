@@ -40,7 +40,14 @@ def perform_model_import(msdir,basedir,cpu_percent=10,mem_percent=20):
         count=0
         free_jobs=-1
         for ms in mslist:
-            cmd='python3 hyperdrive_model.py --msname '+ms+' --beamfile '+beamfile+' --sourcelist '+source_model_file+' --ncpu '+str(ncpu)
+            metafits = (
+                os.path.dirname(os.path.abspath(ms))
+                + "/"
+                + os.path.basename(ms).split(".ms")[0].split("_")[0]
+                + ".metafits"
+            )
+            cmd='python3 hyperdrive_model.py --msname '+ms+' --metafits '+metafits+' --beamfile '+beamfile+' --sourcelist '+\
+                    source_model_file+' --ncpu '+str(ncpu)
             basename='model_'+os.path.basename(ms).split('.ms')[0]+'_hyperdrive'
             batch_file=create_batch_script_nonhpc(cmd, basedir, basename)
             os.system("bash " + batch_file)
@@ -224,7 +231,7 @@ def perform_all_applycal(msdir,bcaldir,kcrossdir,basedir,do_flag=True,cpu_percen
         print ("#####################\nApply calibration solution jobs are finished unsuccessfully.\n#####################\n") 
         return 1        
  
-def perform_all_spectral_imaging():
+#def perform_all_spectral_imaging():
                            
            
 ################################

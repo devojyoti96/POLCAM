@@ -1,6 +1,9 @@
 from casatools import table, msmetadata
-import numpy as np,os, psutil, time, glob, gc
+from casatasks import importfits, exportfits
+from astropy.io import fits
+import numpy as np, os, psutil, time, glob, gc
 
+os.system("rm -rf casa*log")
 
 def freq_to_MWA_coarse(freq):
     """
@@ -86,7 +89,7 @@ def calc_psf(msname):
             PSF size in arcsec
     """
     maxuv_m, maxuv_l = calc_maxuv(msname)
-    psf = np.rad2deg(1.2 / maxuv_l) * 3600.0  # In arcsec
+    psf = np.rad2deg(1.22 / maxuv_l) * 3600.0  # In arcsec
     return psf
 
 
@@ -109,7 +112,7 @@ def calc_cellsize(msname, num_pixel_in_psf):
     return pixel
 
 
-def calc_imsize(msname, num_pixel_in_psf):
+def calc_imsize(msname, num_pixel_in_psf, FWHM =True):
     """
     Calculate image pixel size
     Parameters
@@ -118,13 +121,15 @@ def calc_imsize(msname, num_pixel_in_psf):
         Name of the measurement set
     num_pixel_in_psf : int
             Number of pixels in one PSF
+    FWHM : bool 
+        Image upto FWHM or first null        
     Returns
     -------
     int
             Number of pixels
     """
     cellsize = calc_cellsize(msname, num_pixel_in_psf)
-    fov = MWA_field_of_view(msname, FWHM=True)
+    fov = MWA_field_of_view(msname, FWHM=FWHM)
     imsize = int(fov / cellsize)
     pow2 = round(np.log2(imsize / 10.0), 0)
     imsize = int((2**pow2) * 10)
@@ -211,6 +216,7 @@ def calc_bw_smearing_freqwidth(msname):
     delta_nu /= 10**6
     return round(delta_nu, 2)
 
+
 def get_calibration_uvrange(msname):
     """
     Calibration baseline range suitable for GLEAM model
@@ -228,13 +234,14 @@ def get_calibration_uvrange(msname):
     freq = msmd.meanfreq(0)
     msmd.close()
     wavelength = (3 * 10**8) / freq
-    minuv_m=112
-    maxuv_m=2500
-    minuv_l=round(minuv_m/wavelength,1)
-    maxuv_l=round(maxuv_m/wavelength,1)
-    uvrange=str(minuv_l)+'~'+str(maxuv_l)+'lambda'
+    minuv_m = 112
+    maxuv_m = 2500
+    minuv_l = round(minuv_m / wavelength, 1)
+    maxuv_l = round(maxuv_m / wavelength, 1)
+    uvrange = str(minuv_l) + "~" + str(maxuv_l) + "lambda"
     return uvrange
- 
+
+
 def create_batch_script_nonhpc(cmd, basedir, basename):
     """
     Function to make a batch script not non-HPC environment
@@ -270,9 +277,10 @@ def create_batch_script_nonhpc(cmd, basedir, basename):
     os.system("chmod a+rwx " + batch_file)
     os.system("chmod a+rwx " + cmd_batch)
     del cmd
-    return basedir + "/" + basename + ".batch"    
- 
-def get_column_size(msname,colname):
+    return basedir + "/" + basename + ".batch"
+
+
+def get_column_size(msname, colname):
     """
     Get a column size in GB
     Parameters
@@ -285,17 +293,19 @@ def get_column_size(msname,colname):
     -------
     float
         Size of the column in GB
-    """            
+    """
     tb = table()
     tb.open(msname)
     if colname not in tb.colnames():
-        print("No "+colname+" column found in this Measurement Set.")
+        print("No " + colname + " column found in this Measurement Set.")
         tb.close()
         return 0
     # Get the shape of the DATA column and the number of rows
     data_desc = tb.getcolshapestring(colname)[0]
-    data_shape_0 = int(data_desc.split(',')[0].split('[')[-1])  # shape of each entry (channels, polarization)
-    data_shape_1 = int(data_desc.split(', ')[-1].split(']')[0])
+    data_shape_0 = int(
+        data_desc.split(",")[0].split("[")[-1]
+    )  # shape of each entry (channels, polarization)
+    data_shape_1 = int(data_desc.split(", ")[-1].split("]")[0])
     num_rows = tb.nrows()
     bytes_per_element = 16
     # Calculate the estimated size
@@ -303,7 +313,157 @@ def get_column_size(msname,colname):
     estimated_size_gb = estimated_size_bytes / (1024**3)
     tb.close()
     return estimated_size_gb
-                 
+
+
+def make_stokes_cube(
+    wsclean_images,
+    outfile_name,
+    imagetype='casa',
+    keep_wsclean_images=True,
+):
+    """
+    Function to convert WSClean images in Stokes cube image (Stokes modes : 'IQUV', 'XXYY', 'RRLL', 'I', 'QU', 'IV','IQ')
+    Parameters
+    ----------
+    wsclean_images : list
+        List of WSClean images
+    outfile_name : str
+        Name of the output file
+    imagetype : str
+        'casa' or 'fits' image 
+    keep_wsclean_images : bool
+        Keep the WSClean images or not
+    Returns
+    -------
+    str
+        Output imagename
+    """
+    stokes = []
+    wsclean_images = sorted(wsclean_images)
+    for i in wsclean_images:
+        name_split = os.path.basename(i).split(".fits")[0].split("-")
+        if len(name_split) >= 3:
+            if name_split[-2] not in stokes:
+                stokes.append(name_split[-2])
+        else:
+            if "I" not in stokes:
+                stokes.append("I")
+    stokes = sorted(stokes)
+    imagename_prefix='temp_'+os.path.basename(wsclean_images[0]).split('-I')[0]
+    imagename = imagename_prefix + ".image"
+    if (
+        stokes != ["I", "Q", "U", "V"]
+        and stokes != ["XX", "YY"]
+        and stokes != ["LL", "RR"]
+        and stokes != ["I", "V"]
+        and stokes != ["Q", "U"]
+        and stokes != ["I"]
+        and stokes != ["I", "Q"]
+    ):
+        print("Stokes axes are not in 'IQUV','I','QU','IV','IQ','XX,YY' or 'RR,LL'. \n")
+    elif stokes == ["I"]:
+        if os.path.isdir(imagename):
+            os.system("rm -rf " + imagename)
+        importfits(
+            fitsimage=wsclean_images[0],
+            imagename=imagename,
+            defaultaxes=True,
+            defaultaxesvalues=["ra", "dec", "stokes", "freq"],
+        )
+    else:            
+        if stokes == ["I", "V"]:
+            for i in wsclean_images:
+                if "-I-" in i:
+                    data = fits.getdata(i)
+                    header = fits.getheader(i)
+                else:
+                    data = np.append(data, fits.getdata(i), axis=0)
+            header["NAXIS4"] = 2.0
+            header["CRVAL4"] = 1.0
+            header["CDELT4"] = 3.0
+        elif stokes == ["I", "Q", "U", "V"]:
+            for i in wsclean_images:
+                if "-I-" in i:
+                    data = fits.getdata(i)
+                    header = fits.getheader(i)
+                else:
+                    data = np.append(data, fits.getdata(i), axis=0)
+            header["NAXIS4"] = 4.0
+            header["CRVAL4"] = 1.0
+            header["CDELT4"] = 1.0
+        elif stokes == ["XX", "YY"]:
+            for i in wsclean_images:
+                if "-XX-" in i:
+                    data = fits.getdata(i)
+                    header = fits.getheader(i)
+                else:
+                    data = np.append(data, fits.getdata(i), axis=0)
+            header["NAXIS4"] = 2.0
+            header["CRVAL4"] = -5.0
+            header["CDELT4"] = -1.0
+        elif stokes == ["LL", "RR"]:
+            wsclean_images.reverse()
+            for i in wsclean_images:
+                if "-RR-" in i:
+                    data = fits.getdata(i)
+                    header = fits.getheader(i)
+                else:
+                    data = np.append(data, fits.getdata(i), axis=0)
+            header["NAXIS4"] = 2.0
+            header["CRVAL4"] = -1.0
+            header["CDELT4"] = -1.0
+        elif stokes == ["Q", "U"]:
+            for i in wsclean_images:
+                if "-Q-" in i:
+                    data = fits.getdata(i)
+                    header = fits.getheader(i)
+                else:
+                    data = np.append(data, fits.getdata(i), axis=0)
+            header["NAXIS4"] = 2.0
+            header["CRVAL4"] = 2.0
+            header["CDELT4"] = 1.0
+        elif stokes == ["I", "Q"]:
+            for i in wsclean_images:
+                if "-I-" in i:
+                    data = fits.getdata(i)
+                    header = fits.getheader(i)
+                else:
+                    data = np.append(data, fits.getdata(i), axis=0)
+            header["NAXIS4"] = 2.0
+            header["CRVAL4"] = 1.0
+            header["CDELT4"] = 1.0
+        ###############################
+        # Final image preparation
+        ###############################     
+        fits.writeto(
+            imagename_prefix + ".fits", data=data, header=header, overwrite=True
+        )
+        if os.path.isdir(imagename):
+            os.system("rm -rf " + imagename)
+        importfits(
+            fitsimage=imagename_prefix + ".fits",
+            imagename=imagename,
+            defaultaxes=True,
+            defaultaxesvalues=["ra", "dec", "stokes", "freq"],
+        )
+        os.system("rm -rf " + imagename_prefix + ".fits")
+    ###############################
+    # Final returns
+    ###############################     
+    if keep_wsclean_images == False:
+        for i in wsclean_images:
+            os.system("rm -rf " + i)
+    if os.path.exists(outfile_name):
+        os.system("rm -rf "+outfile_name)        
+    if imagetype=='casa':
+        os.system('mv '+imagename+' '+outfile_name)
+    else:
+        exportfits(imagename=imagename,fitsimage=outfile_name,dropstokes=False,dropdeg=False,overwrite=True) 
+        os.system("rm -rf "+imagename)      
+    gc.collect()         
+    return outfile_name
+
+
 def check_resource_availability(cpu_threshold=20, memory_threshold=20):
     """
     Check hardware resource availability
@@ -317,7 +477,7 @@ def check_resource_availability(cpu_threshold=20, memory_threshold=20):
     -------
     bool
         Whether sufficient hardware resource is available or not
-    """         
+    """
     # Check CPU availability
     current_cpu_usage = psutil.cpu_percent(interval=1)
     cpu_available = current_cpu_usage < (100 - cpu_threshold)
@@ -328,9 +488,12 @@ def check_resource_availability(cpu_threshold=20, memory_threshold=20):
     # Check Swap Memory availability
     # Check Swap availability
     swap = psutil.swap_memory()
-    swap_available = swap.free / swap.total * 100 if swap.total > 0 else 0  # 0% if no swap is configured
+    swap_available = (
+        swap.free / swap.total * 100 if swap.total > 0 else 0
+    )  # 0% if no swap is configured
     swap_sufficient = swap_available > memory_threshold
     return cpu_available and memory_sufficient and swap_sufficient
+
 
 def wait_for_resources(finished_file_prefix, cpu_threshold=20, memory_threshold=20):
     """
@@ -338,39 +501,37 @@ def wait_for_resources(finished_file_prefix, cpu_threshold=20, memory_threshold=
     Parameters
     ----------
     finished_file_prefix : str
-        Finished file prefix name 
+        Finished file prefix name
     cpu_threshold : float
         Percentage of free CPU
     memory_threshold : float
-        Percentage of free memory 
+        Percentage of free memory
     Returns
     -------
     int
-        Number of free jobs      
+        Number of free jobs
     """
     time.sleep(5)
-    count=0
-    finished_file_list=glob.glob(finished_file_prefix+'*')
+    count = 0
+    finished_file_list = glob.glob(finished_file_prefix + "*")
     while True:
-        resource_available=check_resource_availability(cpu_threshold=cpu_threshold, memory_threshold=memory_threshold)
+        resource_available = check_resource_availability(
+            cpu_threshold=cpu_threshold, memory_threshold=memory_threshold
+        )
         if resource_available:
-            new_finished_file_list=glob.glob(finished_file_prefix+'*')
-            if len(new_finished_file_list)-len(finished_file_list)>0:
-                free_jobs=len(new_finished_file_list)-len(finished_file_list)
+            new_finished_file_list = glob.glob(finished_file_prefix + "*")
+            if len(new_finished_file_list) - len(finished_file_list) > 0:
+                free_jobs = len(new_finished_file_list) - len(finished_file_list)
                 gc.collect()
                 return free_jobs
-            else:   
-                if count==0:
-                    print ('Waiting for free hardware resources ....\n')  
-                gc.collect()    
-                time.sleep(1) 
-        else: 
-            if count==0:
-                print ('Waiting for free hardware resources ....\n')  
-            gc.collect()    
+            else:
+                if count == 0:
+                    print("Waiting for free hardware resources ....\n")
+                gc.collect()
+                time.sleep(1)
+        else:
+            if count == 0:
+                print("Waiting for free hardware resources ....\n")
+            gc.collect()
             time.sleep(1)
-        count+=1     
-        
-        
-          
-    
+        count += 1

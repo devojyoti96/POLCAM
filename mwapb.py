@@ -9,6 +9,7 @@ from optparse import OptionParser
 from scipy.interpolate import RectBivariateSpline
 from joblib import Parallel, delayed
 
+warnings.filterwarnings("ignore")
 os.system("rm -rf casa*log")
 
 """
@@ -273,6 +274,7 @@ def get_jones_array(
     gridpoint,
     iau_order,
     interpolated,
+    verbose,
 ):
     """
     Get primary beam jones matrix
@@ -298,7 +300,8 @@ def get_jones_array(
         Jones array (shape : coordinate_arr_shape, 2 ,2)
     """
     if interpolated:
-        print("Using interpolated beam ....\n")
+        if verbose:
+            print("Using interpolated beam ....\n")
         s = time.time()
         j00_r, j00_i, j01_r, j01_i, j10_r, j10_i, j11_r, j11_i = (
             all_sky_beam_interpolator(
@@ -306,7 +309,6 @@ def get_jones_array(
             )
         )
         # Change resolution based on frequency
-        za_arr = 90 - alt_arr
         s = time.time()
         results = Parallel(n_jobs=8)(
             [
@@ -343,6 +345,7 @@ def get_jones_array(
         beam = mwa_hyperbeam.FEEBeam(MWA_PB_file)
         sweet_spots = np.load(sweet_spot_file, allow_pickle=True).all()
         delay = sweet_spots[int(gridpoint)][-1]
+        za_arr = 90 - alt_arr
         jones_array = beam.calc_jones_array(
             np.deg2rad(az_arr),
             np.deg2rad(za_arr),
@@ -567,18 +570,19 @@ def mwapb_cor(
             traceback.print_exc()
             gc.collect()
             return 1
-    if restore == False:
-        print(
-            "Correcting image : "
-            + os.path.basename(imagename)
-            + " for MWA primary beam response......\n"
-        )
-    else:
-        print(
-            "Undo the correction image : "
-            + os.path.basename(imagename)
-            + " for MWA primary beam response......\n"
-        )
+    if verbose:
+        if restore == False:
+            print(
+                "Correcting image : "
+                + os.path.basename(imagename)
+                + " for MWA primary beam response......\n"
+            )
+        else:
+            print(
+                "Undo the correction image : "
+                + os.path.basename(imagename)
+                + " for MWA primary beam response......\n"
+            )
     naxes = image_header["NAXIS"]
     freqaxis = 3
     stokesaxis = 4
@@ -628,6 +632,7 @@ def mwapb_cor(
                 gridpoint,
                 iau_order,
                 interpolated,
+                verbose,
             )
             image_header = fits.getheader(fitsfile)
             radeg = image_header["CRVAL1"]
@@ -657,6 +662,7 @@ def mwapb_cor(
                 gridpoint,
                 iau_order,
                 interpolated,
+                verbose,
             )
         if save_pb_file != "":
             if verbose:
@@ -695,6 +701,7 @@ def mwapb_cor(
                     gridpoint,
                     iau_order,
                     interpolated,
+                    verbose,
                 )
                 image_header = fits.getheader(fitsfile)
                 radeg = image_header["CRVAL1"]
@@ -728,6 +735,7 @@ def mwapb_cor(
                     gridpoint,
                     iau_order,
                     interpolated,
+                    verbose,
                 )
     if verbose:
         print("Correcting image using primary beam....\n")
@@ -917,15 +925,16 @@ def mwapb_cor(
                 + image_extension
             )
         os.system("rm -rf " + output_fitsfile + " " + fitsfile + " casa*log")
-        print(
-            "Output image written to : "
-            + os.path.dirname(os.path.abspath(imagename))
-            + "/"
-            + outfile
-            + "."
-            + image_extension
-            + "\n"
-        )
+        if verbose:
+            print(
+                "Output image written to : "
+                + os.path.dirname(os.path.abspath(imagename))
+                + "/"
+                + outfile
+                + "."
+                + image_extension
+                + "\n"
+            )
         gc.collect()
         return (
             os.path.dirname(os.path.abspath(imagename))
@@ -940,7 +949,8 @@ def mwapb_cor(
             fits.writeto(
                 output_fitsfile, data=data[0, ...], header=image_header, overwrite=True
             )
-        print("Output image written to : " + output_fitsfile + "\n")
+        if verbose:
+            print("Output image written to : " + output_fitsfile + "\n")
         os.system("rm -rf casa*log")
         gc.collect()
         return output_fitsfile
@@ -1050,7 +1060,7 @@ def main():
     parser.add_option(
         "--interpolated",
         dest="interpolated",
-        default=False,
+        default=True,
         help="Interpolated beam",
         metavar="Boolean",
     )
@@ -1083,13 +1093,15 @@ def main():
             interpolated=eval(str(options.interpolated)),
             output_stokes=options.output_stokes,
         )
-        print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
+        if eval(str(options.verbose)):
+            print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
         gc.collect()
         return 0
     except Exception as e:
         traceback.print_exc()
         gc.collect()
-        print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
+        if eval(str(options.verbose)):
+            print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
         return 1
 
 

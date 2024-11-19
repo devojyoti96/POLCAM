@@ -1,109 +1,174 @@
-import os, glob
-from casatasks import imsubimage, exportfits
-from basic_func import *
+import os, glob, gc, psutil, time
+from joblib import Parallel, delayed
+from optparse import OptionParser
+from tempfile import TemporaryDirectory
 
 os.system("rm -rf casa*log")
-
-########
-# Inputs
-########
-imagedir = input("imagedir: ")
-metafits = input("metafits file: ")
-input_image_prefix = input("input image prefix: ")
-nthreads = input("Number of threads:")
-outdir = imagedir + "/pbcor_images"
-iauorder = input("IAU order:")
-pbdir = input("Previous PB directory:")
-MWA_PB_file = input("MWA PB file:")
-sweetspot_file = input("MWA sweetspot file:")
-outdir += "_" + iauorder
-if os.path.exists(outdir) == False:
-    os.makedirs(outdir)
-else:
-    os.system("rm -rf " + outdir + "/*")
+MWA_PB_file = "mwa_full_embedded_element_pattern.h5"
+sweetspot_file = "MWA_sweet_spots.npy"
 
 
-def correctpb_spectral_images(imagedir, image_prefix):
-    os.chdir(imagedir)
-    i_images = sorted(glob.glob(image_prefix + "-*I-image.fits"))
-    q_images = sorted(glob.glob(image_prefix + "-*Q-image.fits"))
-    u_images = sorted(glob.glob(image_prefix + "-*U-image.fits"))
-    v_images = sorted(glob.glob(image_prefix + "-*V-image.fits"))
+def run_cmd(cmd):
+    imagename = os.path.basename(cmd.split("--imagename ")[-1].split(" ")[0])
+    print("Correcting primary beam for image: " + imagename + "\n")
+    result = os.system(cmd)
+    gc.collect()
+    return result
 
-    for i in range(len(i_images)):
-        if "MFS" not in i_images[i]:
-            ch = str(
-                i_images[i].split(image_prefix + "-")[-1].split("-I-image.fits")[0]
-            )
-            header = fits.getheader(i_images[i])
-            freq_MHz = float(header["CRVAL3"]) / 10**6
-            coarse_chan = freq_to_MWA_coarse(freq_MHz)
-            pbfile = glob.glob(pbdir + "/*-coch-" + str(coarse_chan) + "*.npy")
-            outfile = (
-                image_prefix + "-ch-" + str(ch) + "-coch-" + str(coarse_chan) + "-iquv"
-            )
-            wsclean_images = [i_images[i], q_images[i], u_images[i], v_images[i]]
-            output_image = wsclean_to_casaimage(
-                wsclean_images=wsclean_images,
-                casaimage_prefix=outfile,
-                imagetype="image",
-                keep_wsclean_images=True,
-            )
+
+def correctpb_spectral_images(imagedir, image_prefix, metafits, ncpu=-1, mem=-1):
+    """
+    Perform primary beam corrections for all Stokes cube images
+    Parameters
+    ----------
+    imagedir : str
+        Image directory name
+    image_prefix : str
+        Image prefix of all images
+    metafits : str
+        Metafits file
+    ncpu : int
+        Number of CPU threads to be used
+    mem : float
+        Amount of memory to be used in GB
+    Returns
+    -------
+    str
+        Primary beam corrected image directory
+    int
+        Numbers of primary beam corrected images
+    """
+    s = time.time()
+    images = sorted(glob.glob(imagedir + "/" + image_prefix + "*image.fits"))
+    if os.path.exists(imagedir + "/pbcor_images") == False:
+        os.makedirs(imagedir + "/pbcor_images")
+    if os.path.exists(imagedir + "/pbs") == False:
+        os.makedirs(imagedir + "/pbs")
+    cmd_list_1 = []
+    cmd_list_2 = []
+    pb_coch = []
+    if ncpu == -1:
+        ncpu = psutil.cpu_count(logical=True)
+    available_mem = psutil.virtual_memory().available / 1024**3
+    if mem == -1:
+        mem = available_mem
+    elif mem > available_mem:
+        mem = available_mem
+    file_size = os.path.getsize(images[0]) / (1024**3)
+    max_jobs = int(mem / file_size)
+    if ncpu < max_jobs:
+        n_jobs = ncpu
+    else:
+        n_jobs = max_jobs
+    per_job_cpu = int(ncpu / n_jobs)
+    if per_job_cpu < 1:
+        per_job_cpu = 1
+    for i in range(len(images)):
+        imagename = images[i]
+        if "MFS" not in os.path.basename(imagename):
+            coch = os.path.basename(imagename).split("-coch-")[-1].split("-")[0]
+            outfile = os.path.basename(imagename).split(".fits")[0] + "_pbcor"
             cmd = (
                 "python3 mwapb.py --MWA_PB_file "
                 + str(MWA_PB_file)
                 + " --sweetspot_file "
                 + str(sweetspot_file)
                 + " --imagename "
-                + output_image
+                + imagename
                 + " --outfile "
-                + outfile.split(".fits")[0]
-                + "_pbcor --metafits "
+                + outfile
+                + " --metafits "
                 + metafits
-                + " --IAU_order "
-                + str(iauorder)
-                + " --num_threads "
-                + str(nthreads)
-                + " --verbose True"
+                + " --IAU_order False --image_conv fits --num_threads "
+                + str(per_job_cpu)
+                + " --verbose False --interpolated True"
             )
-            if len(pbfile) > 0:
-                cmd += " --pb_jones_file " + pbfile[0]
+            if coch in pb_coch:
+                cmd += " --pb_jones_file " + imagedir + "/pbs/pbfile_" + coch + ".npy"
+                cmd_list_2.append(cmd)
             else:
-                cmd += " --save_pb " + outfile.split(".fits")[0] + "_pb"
-            print(cmd + "\n")
-            os.system(cmd)
-            for stokes in ["I", "Q", "U", "V"]:
-                imsubimage(
-                    imagename=outfile.split(".fits")[0] + "_pbcor.image",
-                    outfile=outfile.split(".fits")[0] + "-" + stokes + "_pbcor.image",
-                    stokes=stokes,
-                )
-                exportfits(
-                    imagename=outfile.split(".fits")[0] + "-" + stokes + "_pbcor.image",
-                    fitsimage=outfile.split(".fits")[0] + "-" + stokes + "_pbcor.fits",
-                )
-                os.system(
-                    "rm -rf "
-                    + outfile.split(".fits")[0]
-                    + "-"
-                    + stokes
-                    + "_pbcor.image"
-                )
-                os.system(
-                    "mv "
-                    + outfile.split(".fits")[0]
-                    + "-"
-                    + stokes
-                    + "_pbcor.fits "
-                    + outdir
-                )
-            if os.path.exists(outfile.split(".fits")[0] + "_pb.npy"):
-                os.system("mv " + outfile.split(".fits")[0] + "_pb.npy " + outdir)
-            os.system("rm -rf " + outfile + "*")
+                pb_coch.append(coch)
+                cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
+                cmd_list_1.append(cmd)
+    print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
+    if os.path.exists(imagedir + "/tmp") == False:
+        os.makedirs(imagedir + "/tmp")
+    os.environ["JOBLIB_TEMP_FOLDER"] = imagedir + "/tmp"
+    msgs = Parallel(n_jobs=n_jobs)(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
+    msgs = Parallel(n_jobs=n_jobs)(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
+    os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")
+    print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
+    os.system("rm -rf " + imagedir + "/tmp")
+    total_images = len(glob.glob(imagedir + "/pbcor_images/*"))
+    gc.collect()
+    return imagedir + "/pbcor_images/", total_images
 
 
-print(
-    "############################\n PB corrected images are saved at: "
-    + outdir
-    + "\n##########################\n"
-)
+################################
+def main():
+    usage = "Perform spectral imaging"
+    parser = OptionParser(usage=usage)
+    parser.add_option(
+        "--imagedir",
+        dest="imagedir",
+        default=None,
+        help="Name of the image directory",
+        metavar="String",
+    )
+    parser.add_option(
+        "--image_prefix",
+        dest="image_prefix",
+        default=None,
+        help="Image prefix name",
+        metavar="String",
+    )
+    parser.add_option(
+        "--metafits",
+        dest="metafits",
+        default=None,
+        help="Name of the metafits file",
+        metavar="String",
+    )
+    parser.add_option(
+        "--ncpu",
+        dest="ncpt",
+        default=-1,
+        help="Numbers of CPU threads to use",
+        metavar="Integer",
+    )
+    parser.add_option(
+        "--mem",
+        dest="mem",
+        default=-1,
+        help="Amount of memory in GB to use",
+        metavar="Float",
+    )
+    (options, args) = parser.parse_args()
+    if (
+        options.imagedir == None
+        or options.image_prefix == None
+        or options.metafits == None
+    ):
+        print("Please provide necessary input parameters.\n")
+        return 1
+    try:
+        total_images, pbcor_image_dir = correctpb_spectral_images(
+            imagedir, image_prefix, metafits, ncpu=-1, mem=-1
+        )
+        print(
+            "Total primary beam corrected images are made: "
+            + str(total_images)
+            + " and saved in: "
+            + pbcor_image_dir
+            + "\n"
+        )
+        return 0
+    except Exception as e:
+        traceback.print_exc()
+        gc.collect()
+        return 1
+
+
+if __name__ == "__main__":
+    result = main()
+    os._exit(result)

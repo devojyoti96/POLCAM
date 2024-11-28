@@ -1,11 +1,12 @@
-import numpy as np, os
-from casatools import table,agentflagger,msmetadata
+import numpy as np, os, copy
+from casatools import table,agentflagger,msmetadata,ms as mstool
 from casatasks import applycal, split
-from basic_func import  get_chans_flags
+from basic_func import  get_chans_flags, calc_maxuv
 from datetime import datetime
 from scipy.interpolate import interp1d
-os.system("rm -rf casa*log")
+from joblib import Parallel, delayed
 
+os.system("rm -rf casa*log")
 
 def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
     """
@@ -32,11 +33,36 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
         datacolumn = "DATA"
     if caltable == "":
         caltable = msname.split(".ms")[0] + ".kcross"
-    tb = table(msname)
-    cor_data = tb.getcol(datacolumn)
-    model_data = tb.getcol("MODEL_DATA")
-    flag = tb.getcol("FLAG")
-    tb.close()
+    msmd=msmetadata()
+    msmd.open(msname)
+    cent_freq=msmd.meanfreq(0)
+    wavelength=(3*10**8)/cent_freq
+    msmd.close()    
+    maxuv_m, maxuv_l = calc_maxuv(msname)
+    if uvrange!='':
+        if '~' in uvrange:
+            minuv_m=float(uvrange.split('lambda')[0].split('~')[0])*wavelength
+            maxuv_m=float(uvrange.split('lambda')[0].split('~')[-1])*wavelength  
+        elif '>' in uvrange:
+            minuv_m=float(uvrange.split('lambda')[0].split('>')[-1])*wavelength    
+        else:
+            minuv_m=0.1
+            maxuv_m=float(uvrange.split('lambda')[0].split('<')[-1])*wavelength    
+            
+    #######################    
+    casa_mstool=mstool()
+    casa_mstool.open(msname)
+    casa_mstool.select({'uvdist':[minuv_m,maxuv_m]})
+    cor_data = casa_mstool.getdata(datacolumn)
+    if datacolumn=='DATA':
+        cor_data=cor_data['data']
+    else:
+        cor_data=cor_data['corrected_data']    
+    model_data = casa_mstool.getdata("MODEL_DATA")['model_data']
+    flag = casa_mstool.getdata("FLAG")['flag']
+    casa_mstool.close()
+    #######################
+    tb = table()
     tb.open(msname+"/SPECTRAL_WINDOW")
     freqs = tb.getcol("CHAN_FREQ").flatten()
     tb.close()

@@ -27,7 +27,7 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
             Name of the caltable
     """
     if len(gaintable) > 0:
-        applycal(vis=msname, gaintable=gaintable, applymode="calflag", calwt=[True], flagbackup=True)
+        applycal(vis=msname, gaintable=gaintable, applymode="calflag", flagbackup=True)
         datacolumn = "CORRECTED_DATA"
     else:
         datacolumn = "DATA"
@@ -60,9 +60,7 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
         cor_data=cor_data['corrected_data']    
     model_data = casa_mstool.getdata("MODEL_DATA")['model_data']
     flag = casa_mstool.getdata("FLAG")['flag']
-    weight=casa_mstool.getdata("WEIGHT")["weight"]
     casa_mstool.close()
-    weight=np.repeat(weight[:,np.newaxis,:],model_data.shape[1],axis=1)
     #######################
     tb = table()
     tb.open(msname+"/SPECTRAL_WINDOW")
@@ -75,7 +73,6 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=[]):
     xy_model = model_data[1, ...]
     yx_model = model_data[2, ...]
     argument = xy_data * xy_model.conjugate() + yx_data.conjugate() * yx_model
-    argument*=weight[0,...]
     crossphase = np.angle(np.nansum(argument, axis=1), deg=True)
     chan_flags=get_chans_flags(msname)
     np.save(caltable, np.array([freqs, crossphase, chan_flags],dtype='object'))

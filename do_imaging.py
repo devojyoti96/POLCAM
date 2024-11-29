@@ -6,9 +6,12 @@ from joblib import Parallel, delayed
 os.system("rm -rf casa*log")
 
 
-def perform_spectral_imaging(
+def perform_spectrotemporal_imaging(
     msname,
-    nchan,
+    freqres=-1,
+    timeres=-1,
+    nchan=1,
+    ntime=1,
     imagedir="",
     multiscale_scales="",
     weight="briggs",
@@ -17,6 +20,7 @@ def perform_spectral_imaging(
     FWHM=True,
     threshold=5,
     minuv_l=-1,
+    savemodel=False,
     ncpu=-1,
     mem=-1,
 ):
@@ -26,8 +30,14 @@ def perform_spectral_imaging(
     ----------
     msname : str
         Name of the measurement set
+    freqres : float
+        Frequency resolution in kHz (If specified, nchan will be ignored)
+    timeres : float
+        Temporal resolution in seconds (If specified, ntime will be ignored)
     nchan : int
-        Number of spectral channel
+        Numbers of spectral channels
+    ntime : int
+        Numbers of temporal slices
     imagedir : str
         Imaging directory
     multiscale_scales : list
@@ -44,6 +54,8 @@ def perform_spectral_imaging(
         Auto-threshold
     minuv_l : float
         Minimum uv-range in lambda
+    savemodel : bool
+        Save model to modelcolumn or not
     ncpu : int
         Number of CPU threads to use
     mem : float
@@ -62,14 +74,52 @@ def perform_spectral_imaging(
     msmd = msmetadata()
     msmd.open(msname)
     max_chan = msmd.nchan(0)
+    max_time = len(msmd.timesforspws(0))
+    if freqres > 0:
+        freqres = freqres * 10**3
+        ms_freqres = msmd.chanres(0)[0]
+        if freqres < ms_freqres:
+            print(
+                "Intended frequency resolution: "
+                + str(round(freqres / 1000.0, 2))
+                + " kHz is smaller than ms frequency resolution: "
+                + str(round(ms_freqres / 1000.0, 2))
+                + "\n"
+            )
+            freqres = ms_freqres
+        ms_freqs = msmd.chanfreqs(0)
+        bw = np.max(ms_freqs) - np.min(ms_freqs)  # In Hz
+        nchan = int(bw / freqres)
+    if timeres > 0:
+        ms_times = msmd.timesforspws(0)
+        ms_timeres = abs(ms_times[1] - ms_times[0])
+        total_time = abs(np.max(ms_times) - np.min(ms_times))
+        if timeres < ms_timeres:
+            print(
+                "Intended time resolution: "
+                + str(round(timeres, 2))
+                + " seconds is smaller than ms time resolution: "
+                + str(round(ms_timeres, 2))
+                + "\n"
+            )
+            timeres = ms_timeres
+        ntime = int(total_time / timeres)
     msmd.close()
     if nchan > max_chan:
         nchan = max_chan
+    elif nchan < 1:
+        nchan = 1
+    if ntime > max_time:
+        ntime = max_time
+    elif ntime < 1:
+        ntime = 1
     if imagedir == "":
         workdir = (
             os.path.dirname(os.path.abspath(msname))
             + "/imagedir_MFS_ch_"
             + str(nchan)
+            + "_t_"
+            + str(ntime)
             + "_"
             + os.path.basename(msname).split(".ms")[0]
         )
@@ -78,6 +128,8 @@ def perform_spectral_imaging(
             imagedir
             + "/imagedir_MFS_ch_"
             + str(nchan)
+            + "_t_"
+            + str(ntime)
             + "_"
             + os.path.basename(msname).split(".ms")[0]
         )
@@ -114,11 +166,13 @@ def perform_spectral_imaging(
         "-gain 0.1",
         "-auto-threshold " + str(threshold) + " -auto-mask " + str(threshold + 0.1),
         "-minuv-l " + str(minuv_l),
-        "-use-wgridder",
         "-channels-out " + str(nchan),
+        "-intervals-out " + str(ntime),
         "-temp-dir " + workdir,
         "-join-channels",
     ]
+    if savemodel == False:
+        wsclean_args.append("-no-update-model-required")
     if multiscale_scales != "":
         wsclean_args.append("-multiscale")
         wsclean_args.append("-multiscale-gain 0.1")
@@ -164,23 +218,61 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
         List of image cubes
     """
 
-    def get_stokes_cube(image_prefix, imagetype, i_image, q_image, u_image, v_image):
-        ch = str(
-            i_image.split(image_prefix + "-")[-1].split("-I-" + imagetype + ".fits")[0]
+    def get_outfile_name(imagename, imagetype):
+        t_ch_split = (
+            imagename.split(image_prefix + "-")[-1]
+            .split("-I-" + imagetype + ".fits")[0]
+            .split("-")
         )
-        header = fits.getheader(i_image)
+        if len(t_ch_split) == 1:
+            try:
+                ch = str(int(t_ch_split[0]))
+            except:
+                ch = "MFS"
+            include_timestamp = False
+        else:
+            try:
+                ch = str(int(t_ch_split[-1]))
+            except:
+                ch = "MFS"
+            include_timestamp = True
+        header = fits.getheader(imagename)
         freq_MHz = float(header["CRVAL3"]) / 10**6
         coarse_chan = freq_to_MWA_coarse(freq_MHz)
-        outfile_name = (
-            image_prefix
-            + "-ch-"
-            + str(ch)
-            + "-coch-"
-            + str(coarse_chan)
-            + "-iquv-"
-            + imagetype
-            + ".fits"
-        )
+        if include_timestamp:
+            dateobs = header["DATE-OBS"]
+            t_str = (
+                "".join(dateobs.split("T")[0].split("-"))
+                + "_"
+                + "".join(dateobs.split("T")[-1].split(":"))
+            )
+            outfile_name = (
+                image_prefix
+                + "-t-"
+                + str(t_str)
+                + "-ch-"
+                + str(ch)
+                + "-coch-"
+                + str(coarse_chan)
+                + "-iquv-"
+                + imagetype
+                + ".fits"
+            )
+        else:
+            outfile_name = (
+                image_prefix
+                + "-ch-"
+                + str(ch)
+                + "-coch-"
+                + str(coarse_chan)
+                + "-iquv-"
+                + imagetype
+                + ".fits"
+            )
+        return outfile_name
+
+    def get_stokes_cube(image_prefix, imagetype, i_image, q_image, u_image, v_image):
+        outfile_name = get_outfile_name(i_image, imagetype)
         wsclean_images = [i_image, q_image, u_image, v_image]
         output_image = make_stokes_cube(
             wsclean_images,
@@ -202,12 +294,30 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
     u_images = sorted(glob.glob(image_prefix + "-*U-" + imagetype + ".fits"))
     v_images = sorted(glob.glob(image_prefix + "-*V-" + imagetype + ".fits"))
 
+    filtered_i_images = []
+    filtered_q_images = []
+    filtered_u_images = []
+    filtered_v_images = []
+    mfs_i_images = []
+    mfs_q_images = []
+    mfs_u_images = []
+    mfs_v_images = []
     for i in range(len(i_images)):
-        if "MFS" in i_images[i]:
-            i_images.remove(i_images[i])
-            q_images.remove(q_images[i])
-            u_images.remove(u_images[i])
-            v_images.remove(v_images[i])
+        if "MFS" not in i_images[i]:
+            filtered_i_images.append(i_images[i])
+            filtered_q_images.append(q_images[i])
+            filtered_u_images.append(u_images[i])
+            filtered_v_images.append(v_images[i])
+        else:
+            mfs_i_images.append(i_images[i])
+            mfs_q_images.append(q_images[i])
+            mfs_u_images.append(u_images[i])
+            mfs_v_images.append(v_images[i])
+
+    i_images = filtered_i_images
+    q_images = filtered_q_images
+    u_images = filtered_u_images
+    v_images = filtered_v_images
     if ncpu == -1:
         ncpu = psutil.cpu_count(logical=True)
     available_mem = psutil.virtual_memory().available / 1024**3
@@ -228,6 +338,19 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
         )
         for i in range(len(i_images))
     )
+    final_mfs_images = Parallel(n_jobs=n_jobs)(
+        delayed(get_stokes_cube)(
+            image_prefix,
+            imagetype,
+            mfs_i_images[i],
+            mfs_q_images[i],
+            mfs_u_images[i],
+            mfs_v_images[i],
+        )
+        for i in range(len(mfs_i_images))
+    )
+    for image in final_mfs_images:
+        final_images.append(image)
     os.chdir(pwd)
     time.sleep(2)
     gc.collect()
@@ -247,10 +370,31 @@ def main():
         metavar="String",
     )
     parser.add_option(
+        "--freqres",
+        dest="freqres",
+        default=-1,
+        help="Spectral resolution of image in kHz (If specified, nchan will be ignored)",
+        metavar="Float",
+    )
+    parser.add_option(
         "--nchan",
         dest="nchan",
         default=1,
         help="Number of spectral channels",
+        metavar="Integer",
+    )
+    parser.add_option(
+        "--timeres",
+        dest="timeres",
+        default=-1,
+        help="Temporal resolution of image in seconds (If specified, ntime will be ignored)",
+        metavar="Float",
+    )
+    parser.add_option(
+        "--ntime",
+        dest="ntime",
+        default=1,
+        help="Number of temporal slices",
         metavar="Integer",
     )
     parser.add_option(
@@ -310,6 +454,13 @@ def main():
         metavar="Float",
     )
     parser.add_option(
+        "--savemodel",
+        dest="savemodel",
+        default=False,
+        help="Save model to modelcolumn or not",
+        metavar="Boolean",
+    )
+    parser.add_option(
         "--ncpu",
         dest="ncpu",
         default=-1,
@@ -327,9 +478,13 @@ def main():
     if options.msname == None:
         print("Please provide the measurement set name.\n")
         return 1
-    msg, imagedir, image_prefix = perform_spectral_imaging(
+
+    msg, imagedir, image_prefix = perform_spectrotemporal_imaging(
         options.msname,
-        int(options.nchan),
+        freqres=float(options.freqres),
+        timeres=float(options.timeres),
+        nchan=int(options.nchan),
+        ntime=int(options.ntime),
         imagedir=options.imagedir,
         multiscale_scales=options.multiscale_scales,
         weight=options.weight,
@@ -338,6 +493,7 @@ def main():
         minuv_l=float(options.minuv_l),
         pol=options.pol,
         FWHM=eval(str(options.FWHM)),
+        savemodel=eval(str(options.savemodel)),
         ncpu=int(options.ncpu),
         mem=float(options.mem),
     )
@@ -368,7 +524,7 @@ def main():
     if os.path.exists(imagedir + "/models") == False:
         os.makedirs(imagedir + "/models")
     if os.path.exists(imagedir + "/residuals") == False:
-        os.makedirs(imagedir + "/residuals")    
+        os.makedirs(imagedir + "/residuals")
     os.system("mv " + imagedir + "/*image*.fits " + imagedir + "/images")
     os.system("mv " + imagedir + "/*model*.fits " + imagedir + "/models")
     os.system("mv " + imagedir + "/*residual*.fits " + imagedir + "/residuals")

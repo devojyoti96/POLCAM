@@ -7,7 +7,7 @@ os.system("rm -rf casa*log")
 
 
 def apply_sol(
-    msname, bandpass_table='', kcross_table='', applymode="calflag", flagbackup=True
+    msname, bandpass_table="", kcross_table="", applymode="calflag", flagbackup=True
 ):
     """
     Apply bandpass and crosshand phase solutions
@@ -25,20 +25,20 @@ def apply_sol(
         Keep flag backup before applying solutions
     """
     try:
-        if bandpass_table=='' and kcross_table=='':
-            print ('No calibration tables to apply.\n')
+        if bandpass_table == "" and kcross_table == "":
+            print("No calibration tables to apply.\n")
             gc.collect()
             return 0
-        if bandpass_table!='':
-            print("Applying bandpass solutons from: "+bandpass_table+"\n")
+        if bandpass_table != "":
+            print("Applying bandpass solutons from: " + bandpass_table + "\n")
             applycal(
                 vis=msname,
                 gaintable=[bandpass_table],
                 applymode=applymode,
                 flagbackup=flagbackup,
             )
-        if kcross_table!='':    
-            print("Applying crosshand phase solutions from: "+kcross_table+"\n")
+        if kcross_table != "":
+            print("Applying crosshand phase solutions from: " + kcross_table + "\n")
             apply_crossphasecal(
                 msname,
                 gaintable=kcross_table,
@@ -46,12 +46,12 @@ def apply_sol(
                 applymode=applymode,
                 flagbackup=flagbackup,
             )
-        print ('Calibration solutions applied.\n')
-        gc.collect() 
+        print("Calibration solutions applied.\n")
+        gc.collect()
         return 0
     except Exception as e:
         traceback.print_exc()
-        gc.collect() 
+        gc.collect()
         return 1
 
 
@@ -113,7 +113,7 @@ def main():
         return 1
     if eval(str(options.do_flag)):
         print("Flagging: " + options.msname)
-        flagdata(vis=options.msname, mode="tfcrop")    
+        flagdata(vis=options.msname, mode="tfcrop")
     msg = apply_sol(
         options.msname,
         bandpass_table=options.bandpass_table,

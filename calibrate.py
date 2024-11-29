@@ -17,13 +17,13 @@ def do_flag_cal(msname, refant, caldir, uvrange="", do_kcross=True, do_flag=True
     refant : str
         Reference antenna index or name
     caldir : str
-        Caltable directory name    
+        Caltable directory name
     uvrange : str
         UV-range to be used for calibration
     do_kcross : bool
         Perform crosshand phase calibration
     do_flag : bool
-        Perform flagging or not    
+        Perform flagging or not
     Returns
     -------
     int
@@ -44,7 +44,9 @@ def do_flag_cal(msname, refant, caldir, uvrange="", do_kcross=True, do_flag=True
         start_coarse_chan = freq_to_MWA_coarse(freq[0] / 10**6)
         end_coarse_chan = freq_to_MWA_coarse(freq[-1] / 10**6)
         caltable_prefix = (
-            caldir+'/'+os.path.basename(msname).split(".ms")[0]
+            caldir
+            + "/"
+            + os.path.basename(msname).split(".ms")[0]
             + "_ref_"
             + str(refant)
             + "_ch_"
@@ -175,10 +177,9 @@ def main():
     )
     if msg == 0:
         if kcrosscal != None:
-            print(
-                "Caltable names: "+bcal+","+kcrosscal+"\n")
+            print("Caltable names: " + bcal + "," + kcrosscal + "\n")
         else:
-            print("Caltable names: " + bcal+"\n")
+            print("Caltable names: " + bcal + "\n")
     else:
         print("Issues occured")
     gc.collect()

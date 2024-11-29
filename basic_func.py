@@ -5,6 +5,7 @@ import numpy as np, os, psutil, time, glob, gc
 
 os.system("rm -rf casa*log")
 
+
 def freq_to_MWA_coarse(freq):
     """
     Frequency to MWA coarse channel conversion
@@ -112,7 +113,7 @@ def calc_cellsize(msname, num_pixel_in_psf):
     return pixel
 
 
-def calc_imsize(msname, num_pixel_in_psf, FWHM =True):
+def calc_imsize(msname, num_pixel_in_psf, FWHM=True):
     """
     Calculate image pixel size
     Parameters
@@ -121,8 +122,8 @@ def calc_imsize(msname, num_pixel_in_psf, FWHM =True):
         Name of the measurement set
     num_pixel_in_psf : int
             Number of pixels in one PSF
-    FWHM : bool 
-        Image upto FWHM or first null        
+    FWHM : bool
+        Image upto FWHM or first null
     Returns
     -------
     int
@@ -318,7 +319,7 @@ def get_column_size(msname, colname):
 def make_stokes_cube(
     wsclean_images,
     outfile_name,
-    imagetype='casa',
+    imagetype="casa",
     keep_wsclean_images=True,
 ):
     """
@@ -330,7 +331,7 @@ def make_stokes_cube(
     outfile_name : str
         Name of the output file
     imagetype : str
-        'casa' or 'fits' image 
+        'casa' or 'fits' image
     keep_wsclean_images : bool
         Keep the WSClean images or not
     Returns
@@ -349,7 +350,7 @@ def make_stokes_cube(
             if "I" not in stokes:
                 stokes.append("I")
     stokes = sorted(stokes)
-    imagename_prefix='temp_'+os.path.basename(wsclean_images[0]).split('-I')[0]
+    imagename_prefix = "temp_" + os.path.basename(wsclean_images[0]).split("-I")[0]
     imagename = imagename_prefix + ".image"
     if (
         stokes != ["I", "Q", "U", "V"]
@@ -370,7 +371,7 @@ def make_stokes_cube(
             defaultaxes=True,
             defaultaxesvalues=["ra", "dec", "stokes", "freq"],
         )
-    else:            
+    else:
         if stokes == ["I", "V"]:
             for i in wsclean_images:
                 if "-I-" in i:
@@ -434,7 +435,7 @@ def make_stokes_cube(
             header["CDELT4"] = 1.0
         ###############################
         # Final image preparation
-        ###############################     
+        ###############################
         fits.writeto(
             imagename_prefix + ".fits", data=data, header=header, overwrite=True
         )
@@ -449,18 +450,24 @@ def make_stokes_cube(
         os.system("rm -rf " + imagename_prefix + ".fits")
     ###############################
     # Final returns
-    ###############################     
+    ###############################
     if keep_wsclean_images == False:
         for i in wsclean_images:
             os.system("rm -rf " + i)
     if os.path.exists(outfile_name):
-        os.system("rm -rf "+outfile_name)        
-    if imagetype=='casa':
-        os.system('mv '+imagename+' '+outfile_name)
+        os.system("rm -rf " + outfile_name)
+    if imagetype == "casa":
+        os.system("mv " + imagename + " " + outfile_name)
     else:
-        exportfits(imagename=imagename,fitsimage=outfile_name,dropstokes=False,dropdeg=False,overwrite=True) 
-        os.system("rm -rf "+imagename)      
-    gc.collect()         
+        exportfits(
+            imagename=imagename,
+            fitsimage=outfile_name,
+            dropstokes=False,
+            dropdeg=False,
+            overwrite=True,
+        )
+        os.system("rm -rf " + imagename)
+    gc.collect()
     return outfile_name
 
 

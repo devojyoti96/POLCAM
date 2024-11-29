@@ -13,16 +13,16 @@ def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
     msname : str
         Name of the measurement set
     metafits : str
-        Name of the metafits file    
+        Name of the metafits file
     beamfile : str
         Beam file name
     sourcelist : str
         Source file name
     ncpu : int
-        Number of cpu threads to use    
+        Number of cpu threads to use
     """
-    if ncpu>0:
-        os.environ['RAYON_NUM_THREADS']=str(ncpu)
+    if ncpu > 0:
+        os.environ["RAYON_NUM_THREADS"] = str(ncpu)
     try:
         starttime = time.time()
         print(
@@ -153,14 +153,20 @@ def main():
         return 1
     if options.metafits == None:
         print("Please provide the metafits file name.\n")
-        return 1    
+        return 1
     if options.beamfile == None:
         print("Please provide the MWA PB file.\n")
         return 1
     if options.sourcelist == None:
         print("Please provide the sourcelist file.\n")
         return 1
-    msg = import_model(options.msname, options.metafits, options.beamfile, options.sourcelist, ncpu = int(options.ncpu))
+    msg = import_model(
+        options.msname,
+        options.metafits,
+        options.beamfile,
+        options.sourcelist,
+        ncpu=int(options.ncpu),
+    )
     return msg
 
 

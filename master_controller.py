@@ -394,7 +394,7 @@ def perform_all_spectral_imaging(
         traceback.print_exc()
         gc.collect()
         print(
-            "#####################\nApply calibration solution jobs are finished unsuccessfully.\n#####################\n"
+            "#####################\nImaging jobs are finished unsuccessfully.\n#####################\n"
         )
         return 1
 

@@ -9,6 +9,7 @@ os.system("rm -rf casa*log")
 def perform_spectral_imaging(
     msname,
     nchan,
+    imagedir="",
     multiscale_scales="",
     weight="briggs",
     robust=0.0,
@@ -27,6 +28,8 @@ def perform_spectral_imaging(
         Name of the measurement set
     nchan : int
         Number of spectral channel
+    imagedir : str
+        Imaging directory
     multiscale_scales : list
         Multiscale scales
     weight : str
@@ -62,13 +65,22 @@ def perform_spectral_imaging(
     msmd.close()
     if nchan > max_chan:
         nchan = max_chan
-    workdir = (
-        os.path.dirname(os.path.abspath(msname))
-        + "/imagedir_MFS_ch_"
-        + str(nchan)
-        + "_"
-        + os.path.basename(msname).split(".ms")[0]
-    )
+    if imagedir == "":
+        workdir = (
+            os.path.dirname(os.path.abspath(msname))
+            + "/imagedir_MFS_ch_"
+            + str(nchan)
+            + "_"
+            + os.path.basename(msname).split(".ms")[0]
+        )
+    else:
+        workdir = (
+            imagedir
+            + "/imagedir_MFS_ch_"
+            + str(nchan)
+            + "_"
+            + os.path.basename(msname).split(".ms")[0]
+        )
     if os.path.exists(workdir) == False:
         os.makedirs(workdir)
     else:
@@ -83,7 +95,7 @@ def perform_spectral_imaging(
     cwd = os.getcwd()
     os.chdir(workdir)
     cellsize = calc_cellsize(msname, 3)
-    imsize = calc_imsize(msname, 3, FWHM = FWHM)
+    imsize = calc_imsize(msname, 3, FWHM=FWHM)
     if weight == "briggs":
         weight += " " + str(robust)
     if minuv_l < 0:
@@ -121,13 +133,13 @@ def perform_spectral_imaging(
         )
     else:
         wsclean_cmd = "wsclean " + " ".join(wsclean_args) + " " + msname
-    print ("Starting imaging of ms: "+msname+"\n")    
+    print("Starting imaging of ms: " + msname + "\n")
     print(wsclean_cmd + "\n")
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
     total_chunks = nchan * 4 * 4
     if total_chunks > soft_limit:
         resource.setrlimit(resource.RLIMIT_NOFILE, (total_chunks, hard_limit))
-    os.system(wsclean_cmd)# + " > tmp_wsclean")
+    os.system(wsclean_cmd)  # + " > tmp_wsclean")
     os.system("rm -rf tmp_wsclean")
     os.chdir(pwd)
     return 0, workdir, os.path.basename(prefix)
@@ -242,6 +254,13 @@ def main():
         metavar="Integer",
     )
     parser.add_option(
+        "--imagedir",
+        dest="imagedir",
+        default="",
+        help="Image directory",
+        metavar="String",
+    )
+    parser.add_option(
         "--multiscale_scales",
         dest="multiscale_scales",
         default="",
@@ -265,7 +284,7 @@ def main():
     parser.add_option(
         "--threshold",
         dest="threshold",
-        default="threshold",
+        default=6.0,
         help="Auto threshold for CLEANing",
         metavar="Float",
     )
@@ -311,6 +330,7 @@ def main():
     msg, imagedir, image_prefix = perform_spectral_imaging(
         options.msname,
         int(options.nchan),
+        imagedir=options.imagedir,
         multiscale_scales=options.multiscale_scales,
         weight=options.weight,
         robust=float(options.robust),
@@ -343,6 +363,15 @@ def main():
         mem=float(options.mem),
     )
     os.system("rm -rf " + imagedir + "/*psf.fits")
+    if os.path.exists(imagedir + "/images") == False:
+        os.makedirs(imagedir + "/images")
+    if os.path.exists(imagedir + "/models") == False:
+        os.makedirs(imagedir + "/models")
+    if os.path.exists(imagedir + "/residuals") == False:
+        os.makedirs(imagedir + "/residuals")    
+    os.system("mv " + imagedir + "/*image*.fits " + imagedir + "/images")
+    os.system("mv " + imagedir + "/*model*.fits " + imagedir + "/models")
+    os.system("mv " + imagedir + "/*residual*.fits " + imagedir + "/residuals")
     print("Images are saved in : ", imagedir)
     return msg
 

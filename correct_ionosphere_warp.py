@@ -222,12 +222,14 @@ def correct_warp(imagename, xmfits, ncpu=-1, keep_original=True):
             n_jobs = ncpu
         else:
             n_jobs = 4
-        wsclean_images = Parallel(n_jobs=n_jobs, backend="threading")(
-            delayed(run_fits_warp)(
-                xmfits, image_prefix + "-" + pol + "-image.fits", ncpu
+        with Parallel(n_jobs=n_jobs) as parallel:    
+            wsclean_images = parallel(
+                delayed(run_fits_warp)(
+                    xmfits, image_prefix + "-" + pol + "-image.fits", ncpu
+                )
+                for pol in ["I", "Q", "U", "V"]
             )
-            for pol in ["I", "Q", "U", "V"]
-        )
+        del parallel    
         output_image = make_stokes_cube(
             wsclean_images,
             image_prefix + "_unwarped",

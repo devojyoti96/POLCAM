@@ -116,16 +116,14 @@ def correctpb_spectral_images(
                 cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
                 cmd_list_1.append(cmd)
     print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
-    if os.path.exists(imagedir + "/tmp") == False:
-        os.makedirs(imagedir + "/tmp")
-    os.environ["JOBLIB_TEMP_FOLDER"] = imagedir + "/tmp"
     with Parallel(n_jobs=n_jobs) as parallel:
         msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
+    del parallel       
     with Parallel(n_jobs=n_jobs) as parallel:
         msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
+    del parallel       
     os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")
     print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
-    os.system("rm -rf " + imagedir + "/tmp")
     total_images = len(glob.glob(imagedir + "/pbcor_images/*"))
     gc.collect()
     return imagedir + "/pbcor_images/", total_images

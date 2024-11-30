@@ -373,7 +373,6 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
     else:
         n_jobs = max_jobs
     print("Total parallel jobs: " + str(n_jobs) + "\n")
-    os.environ["JOBLIB_TEMP_FOLDER"] = imagedir + "/tmp"
     with Parallel(n_jobs=n_jobs) as parallel:
         final_images = parallel(
             delayed(get_stokes_cube)(
@@ -381,6 +380,7 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
             )
             for i in range(len(final_image_list))
         )
+    del parallel    
     with Parallel(n_jobs=n_jobs) as parallel:
         final_mfs_images = parallel(
             delayed(get_stokes_cube)(
@@ -391,19 +391,19 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
             )
             for i in range(len(final_mfs_image_list))
         )
+    del parallel    
     for image in final_mfs_images:
         final_images.append(image)
     os.chdir(pwd)
     time.sleep(2)
     gc.collect()
-    os.system("rm -rf " + imagedir + "/tmp")
     print("Total time taken: " + str(round(time.time() - s, 2)) + "s.\n")
     return final_images
 
 
 ################################
 def main():
-    usage = "Perform spectral imaging\nImages will be saved in : {imagedir}+'/imagedir_MFS_ch_{nchan}_t_{ntime}_pol_{pol}_{obsid}\nImages name format: {obsid}_nchan_{nchan}_ntime_{ntime}-t-{yyyymmdd}_{hhmmss.ff}-f-{freqMHz}-ch-{ch_number}-coch-{coarse_chan_number}-iquv-image.fits"
+    usage = "Perform spectral polarimetric snapshot imaging\nImages will be saved in : {imagedir}+'/imagedir_MFS_ch_{nchan}_t_{ntime}_pol_{pol}_{obsid}\nImages name format: {obsid}_nchan_{nchan}_ntime_{ntime}-t-{yyyymmdd}_{hhmmss.ff}-f-{freqMHz}-ch-{ch_number}-coch-{coarse_chan_number}-iquv-image.fits"
     parser = OptionParser(usage=usage)
     parser.add_option(
         "--msname",

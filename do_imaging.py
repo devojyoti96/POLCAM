@@ -198,7 +198,7 @@ def perform_spectrotemporal_imaging(
     total_chunks = nchan * 4 * 4
     if total_chunks > soft_limit:
         resource.setrlimit(resource.RLIMIT_NOFILE, (total_chunks, hard_limit))
-    os.system(wsclean_cmd)  # + " > tmp_wsclean")
+    os.system(wsclean_cmd + " > tmp_wsclean")
     os.system("rm -rf tmp_wsclean")
     os.chdir(pwd)
     return 0, workdir, os.path.basename(prefix)

@@ -311,18 +311,19 @@ def get_jones_array(
         )
         # Change resolution based on frequency
         s = time.time()
-        results = Parallel(n_jobs=8,backend='threading')(
-            [
-                delayed(j00_r)(alt_arr, az_arr, grid=False),
-                delayed(j00_i)(alt_arr, az_arr, grid=False),
-                delayed(j01_r)(alt_arr, az_arr, grid=False),
-                delayed(j01_i)(alt_arr, az_arr, grid=False),
-                delayed(j10_r)(alt_arr, az_arr, grid=False),
-                delayed(j10_i)(alt_arr, az_arr, grid=False),
-                delayed(j11_r)(alt_arr, az_arr, grid=False),
-                delayed(j11_i)(alt_arr, az_arr, grid=False),
-            ]
-        )
+        with Parallel(n_jobs=8) as parallel:
+            results = parallel(
+                [
+                    delayed(j00_r)(alt_arr, az_arr, grid=False),
+                    delayed(j00_i)(alt_arr, az_arr, grid=False),
+                    delayed(j01_r)(alt_arr, az_arr, grid=False),
+                    delayed(j01_i)(alt_arr, az_arr, grid=False),
+                    delayed(j10_r)(alt_arr, az_arr, grid=False),
+                    delayed(j10_i)(alt_arr, az_arr, grid=False),
+                    delayed(j11_r)(alt_arr, az_arr, grid=False),
+                    delayed(j11_i)(alt_arr, az_arr, grid=False),
+                ]
+            )
         (
             j00_r_arr,
             j00_i_arr,
@@ -1083,7 +1084,7 @@ def main():
     nthreads = int(options.nthreads)
     start_time = time.time()
     try:
-        pbcor_image=mwapb_cor(
+        pbcor_image = mwapb_cor(
             str(options.imagename),
             str(options.outfile),
             str(options.MWA_PB_file),
@@ -1101,13 +1102,19 @@ def main():
             interpolated=eval(str(options.interpolated)),
             output_stokes=options.output_stokes,
         )
-        if options.warp_cat!=None and os.path.exists(options.warp_cat):
-            print ("Ionospheric warp correction using: "+os.path.basename(options.warp_cat)+"\n")
-            pbcor_image=correct_warp(pbcor_image, options.warp_cat, ncpu=int(nthreads), keep_original=False)
-            header=fits.getheader(pbcor_image)
-            data=fits.getdata(pbcor_image)
-            header['UNWARP']='Y'
-            fits.writeto(pbcor_image,data,header,overwrite=True)
+        if options.warp_cat != None and os.path.exists(options.warp_cat):
+            print(
+                "Ionospheric warp correction using: "
+                + os.path.basename(options.warp_cat)
+                + "\n"
+            )
+            pbcor_image = correct_warp(
+                pbcor_image, options.warp_cat, ncpu=int(nthreads), keep_original=False
+            )
+            header = fits.getheader(pbcor_image)
+            data = fits.getdata(pbcor_image)
+            header["UNWARP"] = "Y"
+            fits.writeto(pbcor_image, data, header, overwrite=True)
         if eval(str(options.verbose)):
             print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
         gc.collect()

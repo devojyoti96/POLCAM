@@ -17,7 +17,9 @@ def run_cmd(cmd):
     return result
 
 
-def correctpb_spectral_images(imagedir, image_prefix, metafits, interpolate =True,  ncpu=-1, mem=-1):
+def correctpb_spectral_images(
+    imagedir, image_prefix, metafits, interpolate=True, ncpu=-1, mem=-1
+):
     """
     Perform primary beam corrections for all Stokes cube images
     Parameters
@@ -29,7 +31,7 @@ def correctpb_spectral_images(imagedir, image_prefix, metafits, interpolate =Tru
     metafits : str
         Metafits file
     interpolate : bool
-        Spatial interpolation or not    
+        Spatial interpolation or not
     ncpu : int
         Number of CPU threads to be used
     mem : float
@@ -51,14 +53,16 @@ def correctpb_spectral_images(imagedir, image_prefix, metafits, interpolate =Tru
     cmd_list_2 = []
     pb_coch = []
     if ncpu == -1:
-        ncpu = int(psutil.cpu_count(logical=True)*(100-psutil.cpu_percent())/100.0)
+        ncpu = int(
+            psutil.cpu_count(logical=True) * (100 - psutil.cpu_percent()) / 100.0
+        )
     available_mem = psutil.virtual_memory().available / 1024**3
     if mem == -1:
         mem = available_mem
     elif mem > available_mem:
         mem = available_mem
     file_size = os.path.getsize(images[0]) / (1024**3)
-    max_jobs = int(mem / (3*file_size))
+    max_jobs = int(mem / (3 * file_size))
     if ncpu < max_jobs:
         n_jobs = ncpu
     else:
@@ -69,15 +73,15 @@ def correctpb_spectral_images(imagedir, image_prefix, metafits, interpolate =Tru
     #############################
     # Making ionosphere warp correction catalog
     #############################
-    warp_cat_list=[]
+    warp_cat_list = []
     for i in range(len(images)):
         imagename = images[i]
-        if "MFS" in os.path.basename(imagename):    
-            warp_cat=estimate_warp_map(imagename, allsky_cat="GGSM.fits")
-            warp_cat_list.append(warp_cat)       
+        if "MFS" in os.path.basename(imagename):
+            warp_cat = estimate_warp_map(imagename, allsky_cat="GGSM.fits")
+            warp_cat_list.append(warp_cat)
     ##############################
     # Warp correction and primary beam correction
-    #############################    
+    #############################
     for i in range(len(images)):
         imagename = images[i]
         if "MFS" not in os.path.basename(imagename):
@@ -96,26 +100,29 @@ def correctpb_spectral_images(imagedir, image_prefix, metafits, interpolate =Tru
                 + metafits
                 + " --IAU_order False --image_conv fits --num_threads "
                 + str(per_job_cpu)
-                + " --verbose False --interpolated "+str(interpolate)
+                + " --verbose False --interpolated "
+                + str(interpolate)
             )
-            if len(warp_cat_list)>0:
+            if len(warp_cat_list) > 0:
                 for warp_cat in warp_cat_list:
-                    temp_image_prefix=os.path.basename(imagename).split('-ch')[0]
+                    temp_image_prefix = os.path.basename(imagename).split("-ch")[0]
                     if temp_image_prefix in os.path.basename(warp_cat):
-                        cmd+= " --warp_cat "+warp_cat  
+                        cmd += " --warp_cat " + warp_cat
             if coch in pb_coch:
                 cmd += " --pb_jones_file " + imagedir + "/pbs/pbfile_" + coch + ".npy"
                 cmd_list_2.append(cmd)
             else:
                 pb_coch.append(coch)
                 cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
-                cmd_list_1.append(cmd)  
+                cmd_list_1.append(cmd)
     print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
     if os.path.exists(imagedir + "/tmp") == False:
         os.makedirs(imagedir + "/tmp")
     os.environ["JOBLIB_TEMP_FOLDER"] = imagedir + "/tmp"
-    msgs = Parallel(n_jobs=n_jobs,backend='threading')(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
-    msgs = Parallel(n_jobs=n_jobs,backend='threading')(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
+    with Parallel(n_jobs=n_jobs) as parallel:
+        msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
+    with Parallel(n_jobs=n_jobs) as parallel:
+        msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
     os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")
     print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
     os.system("rm -rf " + imagedir + "/tmp")
@@ -180,7 +187,12 @@ def main():
         return 1
     try:
         pbcor_image_dir, total_images = correctpb_spectral_images(
-            options.imagedir, options.image_prefix, options.metafits, interpolate = eval(str(options.interpolate)), ncpu=int(options.ncpu), mem=float(options.mem)
+            options.imagedir,
+            options.image_prefix,
+            options.metafits,
+            interpolate=eval(str(options.interpolate)),
+            ncpu=int(options.ncpu),
+            mem=float(options.mem),
         )
         print(
             "Total primary beam corrected images are made: "

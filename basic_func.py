@@ -362,6 +362,7 @@ def make_stokes_cube(
         and stokes != ["I", "Q"]
     ):
         print("Stokes axes are not in 'IQUV','I','QU','IV','IQ','XX,YY' or 'RR,LL'. \n")
+        return
     elif stokes == ["I"]:
         if os.path.isdir(imagename):
             os.system("rm -rf " + imagename)

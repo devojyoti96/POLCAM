@@ -120,6 +120,8 @@ def perform_spectrotemporal_imaging(
             + str(nchan)
             + "_t_"
             + str(ntime)
+            + "_pol_"
+            + pol
             + "_"
             + os.path.basename(msname).split(".ms")[0]
         )
@@ -130,6 +132,8 @@ def perform_spectrotemporal_imaging(
             + str(nchan)
             + "_t_"
             + str(ntime)
+            + "_pol_"
+            + pol
             + "_"
             + os.path.basename(msname).split(".ms")[0]
         )
@@ -143,6 +147,8 @@ def perform_spectrotemporal_imaging(
         + os.path.basename(msname).split(".ms")[0]
         + "_nchan_"
         + str(nchan)
+        + "_ntime_"
+        + str(ntime)
     )
     cwd = os.getcwd()
     os.chdir(workdir)
@@ -169,7 +175,6 @@ def perform_spectrotemporal_imaging(
         "-channels-out " + str(nchan),
         "-intervals-out " + str(ntime),
         "-temp-dir " + workdir,
-        "-join-channels",
     ]
     if savemodel == False:
         wsclean_args.append("-no-update-model-required")
@@ -218,64 +223,43 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
         List of image cubes
     """
 
-    def get_outfile_name(imagename, imagetype):
-        t_ch_split = (
-            imagename.split(image_prefix + "-")[-1]
-            .split("-I-" + imagetype + ".fits")[0]
-            .split("-")
-        )
-        if len(t_ch_split) == 1:
-            try:
-                ch = str(int(t_ch_split[0]))
-            except:
-                ch = "MFS"
-            include_timestamp = False
-        else:
-            try:
-                ch = str(int(t_ch_split[-1]))
-            except:
-                ch = "MFS"
-            include_timestamp = True
+    def get_outfile_name(imagename, imagetype, pol):
+        t_ch_split = imagename.split(image_prefix + "-")[-1].split("-")[1]
+        try:
+            ch = str(int(t_ch_split))
+        except:
+            ch = "MFS"
         header = fits.getheader(imagename)
         freq_MHz = float(header["CRVAL3"]) / 10**6
         coarse_chan = freq_to_MWA_coarse(freq_MHz)
-        if include_timestamp:
-            dateobs = header["DATE-OBS"]
-            t_str = (
-                "".join(dateobs.split("T")[0].split("-"))
-                + "_"
-                + "".join(dateobs.split("T")[-1].split(":"))
-            )
-            outfile_name = (
-                image_prefix
-                + "-t-"
-                + str(t_str)
-                + "-ch-"
-                + str(ch)
-                + "-coch-"
-                + str(coarse_chan)
-                + "-iquv-"
-                + imagetype
-                + ".fits"
-            )
-        else:
-            outfile_name = (
-                image_prefix
-                + "-ch-"
-                + str(ch)
-                + "-coch-"
-                + str(coarse_chan)
-                + "-iquv-"
-                + imagetype
-                + ".fits"
-            )
+        dateobs = header["DATE-OBS"]
+        t_str = (
+            "".join(dateobs.split("T")[0].split("-"))
+            + "_"
+            + "".join(dateobs.split("T")[-1].split(":"))
+        )
+        outfile_name = (
+            image_prefix
+            + "-t-"
+            + str(t_str)
+            + "-f-"
+            + str(round(freq_MHz, 3))
+            + "-ch-"
+            + str(ch)
+            + "-coch-"
+            + str(coarse_chan)
+            + "-"
+            + pol
+            + "-"
+            + imagetype
+            + ".fits"
+        )
         return outfile_name
 
-    def get_stokes_cube(image_prefix, imagetype, i_image, q_image, u_image, v_image):
-        outfile_name = get_outfile_name(i_image, imagetype)
-        wsclean_images = [i_image, q_image, u_image, v_image]
+    def get_stokes_cube(image_prefix, imagetype, pol, imagelist=[]):
+        outfile_name = get_outfile_name(imagelist[0], imagetype, pol)
         output_image = make_stokes_cube(
-            wsclean_images,
+            imagelist,
             outfile_name,
             imagetype="fits",
             keep_wsclean_images=False,
@@ -287,37 +271,94 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
     pwd = os.getcwd()
     os.chdir(imagedir)
     ####################################
-    # Making Stokes cubes
+    # Making image list for stokes cube
     ###################################
     i_images = sorted(glob.glob(image_prefix + "-*I-" + imagetype + ".fits"))
     q_images = sorted(glob.glob(image_prefix + "-*Q-" + imagetype + ".fits"))
     u_images = sorted(glob.glob(image_prefix + "-*U-" + imagetype + ".fits"))
     v_images = sorted(glob.glob(image_prefix + "-*V-" + imagetype + ".fits"))
-
+    pol = ""
+    pol_list = []
     filtered_i_images = []
-    filtered_q_images = []
-    filtered_u_images = []
-    filtered_v_images = []
     mfs_i_images = []
+    filtered_q_images = []
     mfs_q_images = []
+    filtered_u_images = []
     mfs_u_images = []
+    filtered_v_images = []
     mfs_v_images = []
-    for i in range(len(i_images)):
-        if "MFS" not in i_images[i]:
-            filtered_i_images.append(i_images[i])
-            filtered_q_images.append(q_images[i])
-            filtered_u_images.append(u_images[i])
-            filtered_v_images.append(v_images[i])
-        else:
-            mfs_i_images.append(i_images[i])
-            mfs_q_images.append(q_images[i])
-            mfs_u_images.append(u_images[i])
-            mfs_v_images.append(v_images[i])
+    if len(i_images) > 0:
+        pol += "i"
+        pol_list.append("i")
+        for i in range(len(i_images)):
+            if "MFS" not in i_images[i]:
+                filtered_i_images.append(i_images[i])
+            else:
+                mfs_i_images.append(i_images[i])
+    if len(q_images) > 0:
+        pol += "q"
+        pol_list.append("q")
+        for i in range(len(q_images)):
+            if "MFS" not in q_images[i]:
+                filtered_q_images.append(q_images[i])
+            else:
+                mfs_q_images.append(q_images[i])
+    if len(u_images) > 0:
+        pol += "u"
+        pol_list.append("u")
+        for i in range(len(u_images)):
+            if "MFS" not in u_images[i]:
+                filtered_u_images.append(u_images[i])
+            else:
+                mfs_u_images.append(u_images[i])
+    if len(v_images) > 0:
+        pol += "v"
+        pol_list.append("v")
+        for i in range(len(v_images)):
+            if "MFS" not in v_images[i]:
+                filtered_v_images.append(v_images[i])
+            else:
+                mfs_v_images.append(v_images[i])
+    ####################################
+    # Making image list of polarizations
+    ####################################
+    final_image_list = []
+    final_mfs_image_list = []
+    n_images = np.nanmax(
+        [
+            len(filtered_i_images),
+            len(filtered_q_images),
+            len(filtered_u_images),
+            len(filtered_v_images),
+        ]
+    )
+    n_mfs_images = np.nanmax(
+        [len(mfs_i_images), len(mfs_q_images), len(mfs_u_images), len(mfs_v_images)]
+    )
+    for i in range(n_images):
+        temp_list = []
+        if "i" in pol_list:
+            temp_list.append(filtered_i_images[i])
+        if "q" in pol_list:
+            temp_list.append(filtered_q_images[i])
+        if "u" in pol_list:
+            temp_list.append(filtered_u_images[i])
+        if "v" in pol_list:
+            temp_list.append(filtered_v_images[i])
+        final_image_list.append(temp_list)
+    for i in range(n_mfs_images):
+        temp_list = []
+        if "i" in pol_list:
+            temp_list.append(mfs_i_images[i])
+        if "q" in pol_list:
+            temp_list.append(mfs_q_images[i])
+        if "u" in pol_list:
+            temp_list.append(mfs_u_images[i])
+        if "v" in pol_list:
+            temp_list.append(mfs_v_images[i])
+        final_mfs_image_list.append(temp_list)
 
-    i_images = filtered_i_images
-    q_images = filtered_q_images
-    u_images = filtered_u_images
-    v_images = filtered_v_images
+    #################################
     if ncpu == -1:
         ncpu = psutil.cpu_count(logical=True)
     available_mem = psutil.virtual_memory().available / 1024**3
@@ -325,42 +366,44 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
         mem = available_mem
     elif mem > available_mem:
         mem = available_mem
-    file_size = os.path.getsize(i_images[0]) / (1024**3)
+    file_size = os.path.getsize(final_image_list[0][0]) / (1024**3)
     max_jobs = int(mem / (4 * file_size))
     if ncpu < max_jobs:
         n_jobs = ncpu
     else:
         n_jobs = max_jobs
     print("Total parallel jobs: " + str(n_jobs) + "\n")
-    final_images = Parallel(n_jobs=n_jobs)(
-        delayed(get_stokes_cube)(
-            image_prefix, imagetype, i_images[i], q_images[i], u_images[i], v_images[i]
+    os.environ["JOBLIB_TEMP_FOLDER"] = imagedir + "/tmp"
+    with Parallel(n_jobs=n_jobs) as parallel:
+        final_images = parallel(
+            delayed(get_stokes_cube)(
+                image_prefix, imagetype, pol, imagelist=final_image_list[i]
+            )
+            for i in range(len(final_image_list))
         )
-        for i in range(len(i_images))
-    )
-    final_mfs_images = Parallel(n_jobs=n_jobs)(
-        delayed(get_stokes_cube)(
-            image_prefix,
-            imagetype,
-            mfs_i_images[i],
-            mfs_q_images[i],
-            mfs_u_images[i],
-            mfs_v_images[i],
+    with Parallel(n_jobs=n_jobs) as parallel:
+        final_mfs_images = parallel(
+            delayed(get_stokes_cube)(
+                image_prefix,
+                imagetype,
+                pol,
+                imagelist=final_mfs_image_list[i],
+            )
+            for i in range(len(final_mfs_image_list))
         )
-        for i in range(len(mfs_i_images))
-    )
     for image in final_mfs_images:
         final_images.append(image)
     os.chdir(pwd)
     time.sleep(2)
     gc.collect()
+    os.system("rm -rf " + imagedir + "/tmp")
     print("Total time taken: " + str(round(time.time() - s, 2)) + "s.\n")
     return final_images
 
 
 ################################
 def main():
-    usage = "Perform spectral imaging"
+    usage = "Perform spectral imaging\nImages will be saved in : {imagedir}+'/imagedir_MFS_ch_{nchan}_t_{ntime}_pol_{pol}_{obsid}\nImages name format: {obsid}_nchan_{nchan}_ntime_{ntime}-t-{yyyymmdd}_{hhmmss.ff}-f-{freqMHz}-ch-{ch_number}-coch-{coarse_chan_number}-iquv-image.fits"
     parser = OptionParser(usage=usage)
     parser.add_option(
         "--msname",
@@ -436,7 +479,7 @@ def main():
         "--pol",
         dest="pol",
         default="IQUV",
-        help="Polarizations to image",
+        help="Polarizations to image (valid modes: 'IQUV', 'XXYY', 'RRLL', 'I', 'QU', 'IV','IQ')",
         metavar="String",
     )
     parser.add_option(
@@ -478,7 +521,28 @@ def main():
     if options.msname == None:
         print("Please provide the measurement set name.\n")
         return 1
-
+    if options.pol not in [
+        "IQUV",
+        "XXYY",
+        "RRLL",
+        "I",
+        "QU",
+        "IV",
+        "IQ",
+        "iquv",
+        "xxyy",
+        "rrll",
+        "i",
+        "qu",
+        "iv",
+        "iq",
+    ]:
+        print(
+            "Given polarization mode: "
+            + options.pol
+            + " is not a valid combination. Choose a correct combination.\n"
+        )
+        return 1
     msg, imagedir, image_prefix = perform_spectrotemporal_imaging(
         options.msname,
         freqres=float(options.freqres),
@@ -497,6 +561,7 @@ def main():
         ncpu=int(options.ncpu),
         mem=float(options.mem),
     )
+
     final_images = final_image_cubes(
         imagedir,
         image_prefix,

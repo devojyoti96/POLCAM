@@ -380,7 +380,7 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
             )
             for i in range(len(final_image_list))
         )
-    del parallel    
+    del parallel
     with Parallel(n_jobs=n_jobs) as parallel:
         final_mfs_images = parallel(
             delayed(get_stokes_cube)(
@@ -391,7 +391,7 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
             )
             for i in range(len(final_mfs_image_list))
         )
-    del parallel    
+    del parallel
     for image in final_mfs_images:
         final_images.append(image)
     os.chdir(pwd)

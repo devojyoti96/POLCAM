@@ -118,10 +118,10 @@ def correctpb_spectral_images(
     print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
     with Parallel(n_jobs=n_jobs) as parallel:
         msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
-    del parallel       
+    del parallel
     with Parallel(n_jobs=n_jobs) as parallel:
         msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
-    del parallel       
+    del parallel
     os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")
     print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
     total_images = len(glob.glob(imagedir + "/pbcor_images/*"))

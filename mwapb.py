@@ -324,7 +324,7 @@ def get_jones_array(
                     delayed(j11_i)(alt_arr, az_arr, grid=False),
                 ]
             )
-        del parallel       
+        del parallel
         (
             j00_r_arr,
             j00_i_arr,

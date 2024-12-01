@@ -8,7 +8,7 @@ from casatasks import exportfits, importfits
 from optparse import OptionParser
 from scipy.interpolate import RectBivariateSpline
 from joblib import Parallel, delayed
-from correct_ionosphere_warp import correct_warp
+from basic_func import *
 
 warnings.filterwarnings("ignore")
 os.system("rm -rf casa*log")
@@ -1068,13 +1068,6 @@ def main():
         metavar="Boolean",
     )
     parser.add_option(
-        "--warp_cat",
-        dest="warp_cat",
-        default=None,
-        help="Ionosphere warp catalog",
-        metavar="String",
-    )
-    parser.add_option(
         "--verbose",
         dest="verbose",
         default=False,
@@ -1102,20 +1095,7 @@ def main():
             differential_pb=eval(str(options.differential_pb)),
             interpolated=eval(str(options.interpolated)),
             output_stokes=options.output_stokes,
-        )
-        if options.warp_cat != None and os.path.exists(options.warp_cat):
-            print(
-                "Ionospheric warp correction using: "
-                + os.path.basename(options.warp_cat)
-                + "\n"
-            )
-            pbcor_image = correct_warp(
-                pbcor_image, options.warp_cat, ncpu=int(nthreads), keep_original=False
-            )
-            header = fits.getheader(pbcor_image)
-            data = fits.getdata(pbcor_image)
-            header["UNWARP"] = "Y"
-            fits.writeto(pbcor_image, data, header, overwrite=True)
+        )           
         if eval(str(options.verbose)):
             print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
         gc.collect()

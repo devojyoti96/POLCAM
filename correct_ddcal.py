@@ -103,7 +103,7 @@ def correctpb_spectral_images(
                 + " --verbose False --interpolated "
                 + str(interpolate)
             )
-            if len(warp_cat_list) > 0:
+            if len(warp_cat_list) > 0:  # TODO: change this
                 for warp_cat in warp_cat_list:
                     temp_image_prefix = os.path.basename(imagename).split("-ch")[0]
                     if temp_image_prefix in os.path.basename(warp_cat):

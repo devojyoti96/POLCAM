@@ -1095,7 +1095,7 @@ def main():
             differential_pb=eval(str(options.differential_pb)),
             interpolated=eval(str(options.interpolated)),
             output_stokes=options.output_stokes,
-        )           
+        )
         if eval(str(options.verbose)):
             print("Total time: " + str(round(time.time() - start_time, 2)) + "s.\n")
         gc.collect()

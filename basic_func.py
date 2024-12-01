@@ -488,11 +488,17 @@ def make_bkg_rms_image(imagename):
         rms image
     """
     image_prefix = imagename.split(".fits")[0]
-    if os.path.exists(image_prefix + "_rms.fits")==False and os.path.exists(image_prefix + "_bkg.fits")==False:
+    if (
+        os.path.exists(image_prefix + "_rms.fits") == False
+        and os.path.exists(image_prefix + "_bkg.fits") == False
+    ):
         if os.path.exists(image_prefix + "_I.image"):
             os.system("rm -rf " + image_prefix + "_I.image")
         imsubimage(
-            imagename=imagename, outfile=image_prefix + "_I.image", stokes="I", dropdeg=True
+            imagename=imagename,
+            outfile=image_prefix + "_I.image",
+            stokes="I",
+            dropdeg=True,
         )
         if os.path.exists(image_prefix + "_I.fits"):
             os.system("rm -rf " + image_prefix + "_I.fits")
@@ -506,7 +512,7 @@ def make_bkg_rms_image(imagename):
         I_image_prefix = I_imagename.split(".fits")[0]
         print("#########################")
         print("Estimating noise map using BANE...\n")
-        bane_cmd = "BANE " + I_imagename
+        bane_cmd = "BANE --noclobber " + I_imagename
         print(bane_cmd + "\n")
         print("#########################")
         os.system(bane_cmd + ">tmp")
@@ -538,7 +544,7 @@ def make_leakage_surface(dataq, datai):
     # Extract x, y, and z from valid indices
     x, y = np.where(valid_indices)
     z = q_by_i[valid_indices]
-    z[np.abs(z)>1]=1
+    z[np.abs(z) > 1] = 1
     # Create the design matrix for the least squares fit
     q_stack = np.column_stack((x, y, z))
     AQ = np.c_[

@@ -4,7 +4,6 @@ from casatasks import applycal, split
 from basic_func import get_chans_flags, calc_maxuv
 from datetime import datetime
 from scipy.interpolate import interp1d
-from joblib import Parallel, delayed
 
 os.system("rm -rf casa*log")
 

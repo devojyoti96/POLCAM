@@ -216,8 +216,7 @@ def all_sky_beam_interpolator(
     numpy.array
         All sky primary beam Jones array
     """
-    os.environ["MWA_BEAM_FILE"] = MWA_PB_file
-    beam = mwa_hyperbeam.FEEBeam()
+    beam = mwa_hyperbeam.FEEBeam(MWA_PB_file)
     az_scale = np.arange(0, 360, resolution)
     alt_scale = np.arange(0, 90, resolution)
     az, alt = np.meshgrid(az_scale, alt_scale)
@@ -422,8 +421,7 @@ def mwapb_cor(
     str
             Output image name
     """
-    os.environ["MWA_BEAM_FILE"] = MWA_PB_file
-    beam = mwa_hyperbeam.FEEBeam()
+    beam = mwa_hyperbeam.FEEBeam(MWA_PB_file)
     outfile = os.path.basename(outfile)
     if imagename[-1] == "/":
         imagename = imagename[:-1]

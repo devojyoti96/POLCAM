@@ -310,7 +310,7 @@ def get_jones_array(
         )
         # Change resolution based on frequency
         s = time.time()
-        with Parallel(n_jobs=8) as parallel:
+        with Parallel(n_jobs=8, backend="multiprocessing") as parallel:
             results = parallel(
                 [
                     delayed(j00_r)(alt_arr, az_arr, grid=False),

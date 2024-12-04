@@ -3,14 +3,60 @@ from optparse import OptionParser
 from astropy.io import fits
 import os, gc, traceback
 
-
-def leakage_surface(imagename, threshold=5, bkg_image="", rms_image=""):
+def fit_leakage_poly(dataq, datai):
+    """
+    Fit leakage surface polynominal
+    Parameters
+    ----------
+    dataq : numpy.array
+        Polarization data
+    datai : numpy.array
+        Stokes I data
+    Returns
+    -------
+    numpy.array
+        Leakage surface array
+    """
+    # Calculate q_by_i and filter valid indices
+    q_by_i = dataq / datai
+    valid_indices = ~np.isnan(q_by_i)
+    # Extract x, y, and z from valid indices
+    x, y = np.where(valid_indices)
+    z = q_by_i[valid_indices]
+    z[np.abs(z) > 1] = 1
+    # Create the design matrix for the least squares fit
+    q_stack = np.column_stack((x, y, z))
+    AQ = np.c_[
+        np.ones(q_stack.shape[0]),
+        q_stack[:, :2],
+        np.prod(q_stack[:, :2], axis=1),
+        q_stack[:, :2] ** 2,
+    ]
+    # Solve for coefficients using least squares
+    CQ, _, _, _ = scipy.linalg.lstsq(AQ, q_stack[:, 2])
+    # Generate the surface values
+    k_indices, l_indices = np.meshgrid(
+        range(dataq.shape[0]), range(dataq.shape[1]), indexing="ij"
+    )
+    data_backup = (
+        CQ[4] * k_indices**2
+        + CQ[5] * l_indices**2
+        + CQ[3] * k_indices * l_indices
+        + CQ[1] * k_indices
+        + CQ[2] * l_indices
+        + CQ[0]
+    )
+    return data_backup
+    
+def leakage_surface(imagename, outdir="", threshold=5, bkg_image="", rms_image=""):
     """
     Make Stokes I to other stokes leakage surface
     Parameters
     ----------
     imagename : str
         Name of the image
+    outdir : str
+        Output directory name
     threshold : float
         Threshold to choose sources from Stokes I
     bkg_image : str
@@ -21,6 +67,8 @@ def leakage_surface(imagename, threshold=5, bkg_image="", rms_image=""):
     -------
     int
         Success message
+    str
+        Output directory name
     str
         Q surface image
     str
@@ -37,37 +85,58 @@ def leakage_surface(imagename, threshold=5, bkg_image="", rms_image=""):
         bkg_image, rms_image = make_bkg_rms_image(imagename)
     data = fits.getdata(imagename)
     header = fits.getheader(imagename)
+    if header['NAXIS']!=4 or (data.shape[0]!=4 and data.shape[1]!=4):
+        print ("This image: "+imagename+" is not a full stokes image. Please provide full Stokes image.")
+        return 1, None, None, None, None
+    try:    
+        if header["CTYPE3"] == "STOKES":
+            q_surface = fit_leakage_poly(data[0, 1, ...], data[0, 0, ...])
+            u_surface = fit_leakage_poly(data[0, 2, ...], data[0, 0, ...])
+            v_surface = fit_leakage_poly(data[0, 3, ...], data[0, 0, ...])
+        elif header["CTYPE4"] == "STOKES":
+            q_surface = fit_leakage_poly(data[1, 0, ...], data[0, 0, ...])
+            u_surface = fit_leakage_poly(data[2, 0, ...], data[0, 0, ...])
+            v_surface = fit_leakage_poly(data[3, 0, ...], data[0, 0, ...])
+        else:
+            print("Stokes axis is not present.")
+            print("Could not make leakage surface.")
+            return 1, None, None, None, None
 
-    if header["CTYPE3"] == "STOKES":
-        q_surface = make_leakage_surface(data[0, 1, ...], data[0, 0, ...])
-        u_surface = make_leakage_surface(data[0, 2, ...], data[0, 0, ...])
-        v_surface = make_leakage_surface(data[0, 3, ...], data[0, 0, ...])
-    elif header["CTYPE4"] == "STOKES":
-        q_surface = make_leakage_surface(data[1, 0, ...], data[0, 0, ...])
-        u_surface = make_leakage_surface(data[2, 0, ...], data[0, 0, ...])
-        v_surface = make_leakage_surface(data[3, 0, ...], data[0, 0, ...])
-    else:
-        print("Stokes axis is not present.")
-        print("Could not make leakage surface.")
-        return 1, None, None, None
+        imagename_split = os.path.basename(imagename).split("-")
+        index = imagename_split.index("iquv")
+        header["BUNIT"] = "FRAC"
 
-    imagename_split = imagename.split("-")
-    index = imagename_split.index("iquv")
-    header["BUNIT"] = "FRAC"
+        if outdir == "":
+            outdir = os.path.dirname(imagename) + "/leakage_surfaces"
+        if os.path.isdir(outdir) == False:
+            os.makedirs(outdir)
 
-    imagename_split[index] = "q_surface"
-    q_surface_name = "-".join(imagename_split)
-    fits.writeto(q_surface_name, q_surface, header, overwrite=True)
+        imagename_split[index] = "q_surface"
+        q_surface_name = "-".join(imagename_split)
+        fits.writeto(outdir + "/" + q_surface_name, q_surface, header, overwrite=True)
 
-    imagename_split[index] = "u_surface"
-    u_surface_name = "-".join(imagename_split)
-    fits.writeto(u_surface_name, u_surface, header, overwrite=True)
+        imagename_split[index] = "u_surface"
+        u_surface_name = "-".join(imagename_split)
+        fits.writeto(outdir + "/" + u_surface_name, u_surface, header, overwrite=True)
 
-    imagename_split[index] = "v_surface"
-    v_surface_name = "-".join(imagename_split)
-    fits.writeto(v_surface_name, v_surface, header, overwrite=True)
+        imagename_split[index] = "v_surface"
+        v_surface_name = "-".join(imagename_split)
+        fits.writeto(outdir + "/" + v_surface_name, v_surface, header, overwrite=True)
 
-    return 0, q_surface_name, u_surface_name, v_surface_name
+        return (
+            0,
+            outdir,
+            outdir + "/" + q_surface_name,
+            outdir + "/" + u_surface_name,
+            outdir + "/" + v_surface_name,
+        )
+    except Exception as e:
+        traceback.print_exc()
+        gc.collect()
+        print(
+            "#####################\nLeakage surface estimation failed.\n#####################\n"
+        )
+        return 1, None, None, None, None
 
 
 def correct_leakage_surface(
@@ -179,6 +248,20 @@ def main():
         metavar="String",
     )
     parser.add_option(
+        "--leakage_surface_dir",
+        dest="leakage_surface_dir",
+        default="",
+        help="Leakage surface directory",
+        metavar="String",
+    )
+    parser.add_option(
+        "--leakage_cor_dir",
+        dest="leakage_cor_dir",
+        default="",
+        help="Leakage surface corrected image directory",
+        metavar="String",
+    )
+    parser.add_option(
         "--threshold",
         dest="threshold",
         default=5.0,
@@ -261,11 +344,14 @@ def main():
                     gc.collect()
                     return 0
             else:
-                msg, q_surface, u_surface, v_surface = leakage_surface(
-                    options.imagename,
-                    threshold=float(options.threshold),
-                    bkg_image=options.bkg_image,
-                    rms_image=options.rms_image,
+                msg, leakage_surface_dir, q_surface, u_surface, v_surface = (
+                    leakage_surface(
+                        options.imagename,
+                        outdir=options.leakage_surface_dir,
+                        threshold=float(options.threshold),
+                        bkg_image=options.bkg_image,
+                        rms_image=options.rms_image,
+                    )
                 )
                 if msg == 1:
                     gc.collect()
@@ -281,6 +367,7 @@ def main():
                         + os.path.basename(v_surface)
                         + "."
                     )
+                    print("Leakage surface direcory : " + leakage_surface_dir)
                     print("###########################")
                     gc.collect()
                     return 0

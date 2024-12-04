@@ -1,6 +1,9 @@
-import glob, os, psutil, traceback, gc
+import glob, os, psutil, traceback, gc, tempfile, shutil
 from basic_func import *
 from optparse import OptionParser
+from correct_pb import *
+from correct_ionosphere_warp import *
+from correct_polcon import *
 
 os.system("rm -rf casa*log")
 
@@ -397,6 +400,159 @@ def perform_all_spectral_imaging(
             "#####################\nImaging jobs are finished unsuccessfully.\n#####################\n"
         )
         return 1
+
+def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
+    """
+    Estimate all direction dependent calibration in image plane
+    Parameters
+    ----------
+    msdir : str
+        Name of the measurement set directory
+    image_basedir : str
+        Image base directory name
+    ncpu : int
+        Number of CPU threads to use
+    mem : float
+        Memory to use in GB
+    Returns
+    -------
+    dict
+        A dictionary containing information of solution directories for all measurement sets
+    """       
+    msmd = msmetadata()
+    mslist = glob.glob(msdir + "/*.ms")
+    ddcal_dirs = {}
+    with tempfile.TemporaryDirectory(dir=image_basedir) as tempdir:
+        os.environ["JOBLIB_TEMP_FOLDER"] = tempdir
+        try:
+            for ms in mslist:
+                ddcal_dir_list = []
+                ms_obsid = os.path.basename(ms).split(".ms")[0]
+                metafits = msdir + "/" + ms_obsid + ".metafits"
+                msmd.open(ms)
+                total_coarsechan = int(msmd.bandwidths(0) / (1280*1000))
+                msmd.close()
+                total_coarsechan=10
+                imagedir = glob.glob(
+                    image_basedir + "/imagedir_MFS_ch_" + str(total_coarsechan) + "_" + str(ms_obsid)
+                )
+                if len(imagedir)==0:
+                    print ("No suitable image directory with coarse channel: "+str(total_coarsechan)+" and ObsID: "+str(ms_obsid))
+                else:
+                    imagedir=imagedir[0]
+                    os.system("rm -rf "+imagedir+"/*_I*")    
+                    image_list = glob.glob(imagedir + "/images/*.fits")
+                    filtered_image_list=[]
+                    for image in image_list:
+                        if 'MFS' not in os.path.basename(image):
+                            filtered_image_list.append(image)
+                    image_list=filtered_image_list 
+                    if len(image_list)==0:
+                        print ("No images in image direcory: "+imagedir + "/images/")
+                    else:       
+                        ######################################
+                        # Primary beam correction
+                        ######################################
+                        print("#######################")
+                        print("Estimating primary beams ....")
+                        print("#######################")
+                        pbcor_image_dir, pb_dir, total_images = correctpb_spectral_images(
+                            imagedir + "/images", metafits, interpolate=True, ncpu=ncpu, mem=mem
+                        )
+                        ddcal_dir_list.append(pbcor_image_dir)
+                        ddcal_dir_list.append(pb_dir)
+                        ######################################
+                        # Ionospheric warp surface
+                        ######################################
+                        warp_outdir = imagedir + "/warps"
+                        if os.path.isdir(warp_outdir) == False:
+                            os.makedirs(warp_outdir)
+                        print("#######################")
+                        print("Estimating ionosphere warp surfaces....")
+                        print("#######################")
+                        if ncpu == -1:
+                            nthread = psutil.cpu_count(logical=True)
+                        else:
+                            nthread = ncpu
+                        available_mem = psutil.virtual_memory().available / 1024**3
+                        if mem == -1:
+                            absmem = available_mem
+                        elif mem > available_mem:
+                            absmem = available_mem
+                        else:
+                            absmem = mem
+                        file_size = os.path.getsize(image_list[0]) / (1024**3)
+                        max_jobs = int(absmem / file_size)
+                        if nthread < max_jobs:
+                            n_jobs = nthread
+                        else:
+                            n_jobs = max_jobs
+                        print("Total parallel jobs: " + str(n_jobs) + "\n")
+                        with Parallel(n_jobs=n_jobs, backend='multiprocessing') as parallel:
+                            results= parallel(delayed(estimate_warp_map)(imagename, outdir=warp_outdir,allsky_cat=source_model_fits) for imagename in image_list)
+                        ddcal_dir_list.append(warp_outdir)
+                        #########################################
+                        # Polconversion estimation
+                        #########################################
+                        print("#######################")
+                        print("Estimating ionosphere warp surfaces....")
+                        print("#######################")
+                        leakage_surface_outdir = imagedir + "/leakage_surfaces"
+                        if os.path.isdir(leakage_surface_outdir) == False:
+                            os.makedirs(leakage_surface_outdir)
+                        bkg_image_list = []
+                        rms_image_list = []
+                        for imagename in image_list:
+                            bkg_image = glob.glob(
+                                warp_outdir
+                                + "/"
+                                + os.path.basename(imagename).split(".fits")[0]
+                                + "*bkg*"
+                            )
+                            if len(bkg_image) > 0:
+                                bkg_image = bkg_image[0]
+                            else:
+                                bkg_image = ""
+                            rms_image = glob.glob(
+                                warp_outdir
+                                + "/"
+                                + os.path.basename(imagename).split(".fits")[0]
+                                + "*rms*"
+                            )
+                            if len(rms_image) > 0:
+                                rms_image = rms_image[0]
+                            else:
+                                rms_image = ""
+                            bkg_image_list.append(bkg_image)
+                            rms_image_list.append(rms_image)
+                        with Parallel(n_jobs=n_jobs, backend='multiprocessing') as parallel:
+                            results = parallel(
+                                delayed(leakage_surface)(
+                                    image_list[i],
+                                    outdir=leakage_surface_outdir,
+                                    threshold=5,
+                                    bkg_image=bkg_image_list[i],
+                                    rms_image=rms_image_list[i],
+                                )
+                                for i in range(len(image_list))
+                            )
+                        del parallel
+                        ddcal_dir_list.append(leakage_surface_outdir)
+                        ddcal_dirs[ms_obsid] = ddcal_dir_list
+            gc.collect()
+            return 0,ddcal_dirs        
+        except Exception as e:
+            traceback.print_exc()
+            gc.collect()
+            print(
+                "#####################\nDirection dependent calibration jobs are finished unsuccessfully.\n#####################\n"
+            )
+            return 1, ddcal_dirs
+        finally:
+            gc.collect()
+            return 0,ddcal_dirs     
+       
+    
 
 
 ################################

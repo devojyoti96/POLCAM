@@ -6,7 +6,6 @@ import numpy as np, os, psutil, time, glob, gc, scipy, copy
 
 os.system("rm -rf casa*log")
 
-
 def freq_to_MWA_coarse(freq):
     """
     Frequency to MWA coarse channel conversion
@@ -472,7 +471,6 @@ def make_stokes_cube(
     gc.collect()
     return outfile_name
 
-
 def make_bkg_rms_image(imagename):
     """
     Make background and rms image
@@ -516,67 +514,44 @@ def make_bkg_rms_image(imagename):
         print(bane_cmd + "\n")
         print("#########################")
         os.system(bane_cmd + ">tmp")
-        rms_image = I_image_prefix + "_rms.fits"
-        bkg_image = I_image_prefix + "_bkg.fits"
-    else:
-        rms_image = image_prefix + "_rms.fits"
-        bkg_image = image_prefix + "_bkg.fits"
+        if I_image_prefix != image_prefix:
+            os.system(
+                "mv " + I_image_prefix + "_bkg.fits " + image_prefix + "_bkg.fits"
+            )
+            os.system(
+                "mv " + I_image_prefix + "_rms.fits " + image_prefix + "_rms.fits"
+            )
+        os.system("rm -rf "+I_imagename)
+    rms_image = image_prefix + "_rms.fits"
+    bkg_image = image_prefix + "_bkg.fits"
     return bkg_image, rms_image
-
-
-def make_leakage_surface(dataq, datai):
-    """
-    Make leakage surface
-    Parameters
-    ----------
-    dataq : numpy.array
-        Polarization data
-    datai : numpy.array
-        Stokes I data
-    Returns
-    -------
-    numpy.array
-        Leakage surface array
-    """
-    # Calculate q_by_i and filter valid indices
-    q_by_i = dataq / datai
-    valid_indices = ~np.isnan(q_by_i)
-    # Extract x, y, and z from valid indices
-    x, y = np.where(valid_indices)
-    z = q_by_i[valid_indices]
-    z[np.abs(z) > 1] = 1
-    # Create the design matrix for the least squares fit
-    q_stack = np.column_stack((x, y, z))
-    AQ = np.c_[
-        np.ones(q_stack.shape[0]),
-        q_stack[:, :2],
-        np.prod(q_stack[:, :2], axis=1),
-        q_stack[:, :2] ** 2,
-    ]
-    # Solve for coefficients using least squares
-    CQ, _, _, _ = scipy.linalg.lstsq(AQ, q_stack[:, 2])
-    # Generate the surface values
-    k_indices, l_indices = np.meshgrid(
-        range(dataq.shape[0]), range(dataq.shape[1]), indexing="ij"
-    )
-    data_backup = (
-        CQ[4] * k_indices**2
-        + CQ[5] * l_indices**2
-        + CQ[3] * k_indices * l_indices
-        + CQ[1] * k_indices
-        + CQ[2] * l_indices
-        + CQ[0]
-    )
-    return data_backup
-
 
 def cal_field_averaged_polfrac(
     pointing_ra_deg,
     pointing_dec_deg,
     fov=30,
-    ggsm_table="GGSM.fits",
-    pogs_table="POGS.fits",
+    stokesI_table="GGSM.fits",
+    stokesP_table="POGS.fits",
 ):
+    """
+    Calculate field averaged polarization fraction
+    Parameters
+    ----------
+    pointing_ra_deg : float
+        Pointing RA in degree
+    pointing_dec_deg : float
+        Pointing DEC in degree
+    fov : float
+        Field of view in degree
+    stokesI_table : str
+        Stokes I catalog fits
+    stokesP_table : str
+        Polarization catalog fits
+    Returns
+    -------
+    float
+        Polarization fraction
+    """                        
     def angular_distance(ra1, dec1, ra_list, dec_list):
         ra1 = np.radians(ra1)
         dec1 = np.radians(dec1)
@@ -601,7 +576,7 @@ def cal_field_averaged_polfrac(
     ###########################
     # Stokes I calculation
     ###########################
-    stokes_I = Table.read(ggsm_table)
+    stokes_I = Table.read(stokesI_table)
     ra = np.array(stokes_I["RAJ2000"].tolist())
     dec = np.array(stokes_I["DEJ2000"].tolist())
     I_flux = np.array(stokes_I["S_200"].tolist())
@@ -614,7 +589,7 @@ def cal_field_averaged_polfrac(
     #############################
     # Linpol calculation
     #############################
-    stokes_P = Table.read(pogs_table)
+    stokes_P = Table.read(stokesP_table)
     ra = np.array(stokes_P["ra"].tolist())
     dec = np.array(stokes_P["dec"].tolist())
     polint = np.array(stokes_P["polint"].tolist())

@@ -42,6 +42,7 @@ def perform_model_import(msdir, basedir, cpu_percent=10, mem_percent=20):
         ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
+            max_jobs=total_cpus    
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         count = 0
         free_jobs = -1
@@ -129,6 +130,11 @@ def perform_all_calibration(
         mssize = get_column_size(trial_ms, "DATA")  # In GB
         total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
         max_jobs = int(total_memory / mssize)
+        total_cpus = psutil.cpu_count()
+        ncpu = int(total_cpus / max_jobs)
+        if ncpu < 1:
+            ncpu = 1
+            max_jobs=total_cpus 
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         count = 0
         free_jobs = -1
@@ -214,6 +220,11 @@ def perform_all_applycal(
         mssize = get_column_size(trial_ms, "DATA")  # In GB
         total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
         max_jobs = int(total_memory / (2 * mssize))
+        total_cpus = psutil.cpu_count()
+        ncpu = int(total_cpus / max_jobs)
+        if ncpu < 1:
+            ncpu = 1
+            max_jobs=total_cpus 
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         count = 0
         free_jobs = -1
@@ -337,6 +348,7 @@ def perform_all_spectral_imaging(
         ncpu = int(available_cpu / max_jobs)
         if ncpu < 1:
             ncpu = 1
+            max_jobs=total_cpus     
         scales = ",".join([str(i) for i in multiscale_scales])
         for ms in mslist:
             cmd = (

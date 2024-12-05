@@ -6,6 +6,7 @@ import numpy as np, os, psutil, time, glob, gc, scipy, copy
 
 os.system("rm -rf casa*log")
 
+
 def freq_to_MWA_coarse(freq):
     """
     Frequency to MWA coarse channel conversion
@@ -471,6 +472,7 @@ def make_stokes_cube(
     gc.collect()
     return outfile_name
 
+
 def make_bkg_rms_image(imagename):
     """
     Make background and rms image
@@ -521,10 +523,11 @@ def make_bkg_rms_image(imagename):
             os.system(
                 "mv " + I_image_prefix + "_rms.fits " + image_prefix + "_rms.fits"
             )
-        os.system("rm -rf "+I_imagename)
+        os.system("rm -rf " + I_imagename)
     rms_image = image_prefix + "_rms.fits"
     bkg_image = image_prefix + "_bkg.fits"
     return bkg_image, rms_image
+
 
 def cal_field_averaged_polfrac(
     pointing_ra_deg,
@@ -551,7 +554,8 @@ def cal_field_averaged_polfrac(
     -------
     float
         Polarization fraction
-    """                        
+    """
+
     def angular_distance(ra1, dec1, ra_list, dec_list):
         ra1 = np.radians(ra1)
         dec1 = np.radians(dec1)

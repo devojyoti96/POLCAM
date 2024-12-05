@@ -42,7 +42,7 @@ def perform_model_import(msdir, basedir, cpu_percent=10, mem_percent=20):
         ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
-            max_jobs=total_cpus    
+            max_jobs = total_cpus
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         count = 0
         free_jobs = -1
@@ -134,7 +134,7 @@ def perform_all_calibration(
         ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
-            max_jobs=total_cpus 
+            max_jobs = total_cpus
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         count = 0
         free_jobs = -1
@@ -224,7 +224,7 @@ def perform_all_applycal(
         ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
-            max_jobs=total_cpus 
+            max_jobs = total_cpus
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         count = 0
         free_jobs = -1
@@ -348,7 +348,7 @@ def perform_all_spectral_imaging(
         ncpu = int(available_cpu / max_jobs)
         if ncpu < 1:
             ncpu = 1
-            max_jobs=total_cpus     
+            max_jobs = total_cpus
         scales = ",".join([str(i) for i in multiscale_scales])
         for ms in mslist:
             cmd = (
@@ -413,6 +413,7 @@ def perform_all_spectral_imaging(
         )
         return 1
 
+
 def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
     """
     Estimate all direction dependent calibration in image plane
@@ -430,7 +431,7 @@ def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
     -------
     dict
         A dictionary containing information of solution directories for all measurement sets
-    """       
+    """
     msmd = msmetadata()
     mslist = glob.glob(msdir + "/*.ms")
     ddcal_dirs = {}
@@ -442,34 +443,49 @@ def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
                 ms_obsid = os.path.basename(ms).split(".ms")[0]
                 metafits = msdir + "/" + ms_obsid + ".metafits"
                 msmd.open(ms)
-                total_coarsechan = int(msmd.bandwidths(0) / (1280*1000))
+                total_coarsechan = int(msmd.bandwidths(0) / (1280 * 1000))
                 msmd.close()
-                total_coarsechan=10
+                total_coarsechan = 10
                 imagedir = glob.glob(
-                    image_basedir + "/imagedir_MFS_ch_" + str(total_coarsechan) + "_" + str(ms_obsid)
+                    image_basedir
+                    + "/imagedir_MFS_ch_"
+                    + str(total_coarsechan)
+                    + "_"
+                    + str(ms_obsid)
                 )
-                if len(imagedir)==0:
-                    print ("No suitable image directory with coarse channel: "+str(total_coarsechan)+" and ObsID: "+str(ms_obsid))
+                if len(imagedir) == 0:
+                    print(
+                        "No suitable image directory with coarse channel: "
+                        + str(total_coarsechan)
+                        + " and ObsID: "
+                        + str(ms_obsid)
+                    )
                 else:
-                    imagedir=imagedir[0]
-                    os.system("rm -rf "+imagedir+"/*_I*")    
+                    imagedir = imagedir[0]
+                    os.system("rm -rf " + imagedir + "/*_I*")
                     image_list = glob.glob(imagedir + "/images/*.fits")
-                    filtered_image_list=[]
+                    filtered_image_list = []
                     for image in image_list:
-                        if 'MFS' not in os.path.basename(image):
+                        if "MFS" not in os.path.basename(image):
                             filtered_image_list.append(image)
-                    image_list=filtered_image_list 
-                    if len(image_list)==0:
-                        print ("No images in image direcory: "+imagedir + "/images/")
-                    else:       
+                    image_list = filtered_image_list
+                    if len(image_list) == 0:
+                        print("No images in image direcory: " + imagedir + "/images/")
+                    else:
                         ######################################
                         # Primary beam correction
                         ######################################
                         print("#######################")
                         print("Estimating primary beams ....")
                         print("#######################")
-                        pbcor_image_dir, pb_dir, total_images = correctpb_spectral_images(
-                            imagedir + "/images", metafits, interpolate=True, ncpu=ncpu, mem=mem
+                        pbcor_image_dir, pb_dir, total_images = (
+                            correctpb_spectral_images(
+                                imagedir + "/images",
+                                metafits,
+                                interpolate=True,
+                                ncpu=ncpu,
+                                mem=mem,
+                            )
                         )
                         ddcal_dir_list.append(pbcor_image_dir)
                         ddcal_dir_list.append(pb_dir)
@@ -500,8 +516,17 @@ def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
                         else:
                             n_jobs = max_jobs
                         print("Total parallel jobs: " + str(n_jobs) + "\n")
-                        with Parallel(n_jobs=n_jobs, backend='multiprocessing') as parallel:
-                            results= parallel(delayed(estimate_warp_map)(imagename, outdir=warp_outdir,allsky_cat=source_model_fits) for imagename in image_list)
+                        with Parallel(
+                            n_jobs=n_jobs, backend="multiprocessing"
+                        ) as parallel:
+                            results = parallel(
+                                delayed(estimate_warp_map)(
+                                    imagename,
+                                    outdir=warp_outdir,
+                                    allsky_cat=source_model_fits,
+                                )
+                                for imagename in image_list
+                            )
                         ddcal_dir_list.append(warp_outdir)
                         #########################################
                         # Polconversion estimation
@@ -537,7 +562,9 @@ def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
                                 rms_image = ""
                             bkg_image_list.append(bkg_image)
                             rms_image_list.append(rms_image)
-                        with Parallel(n_jobs=n_jobs, backend='multiprocessing') as parallel:
+                        with Parallel(
+                            n_jobs=n_jobs, backend="multiprocessing"
+                        ) as parallel:
                             results = parallel(
                                 delayed(leakage_surface)(
                                     image_list[i],
@@ -552,7 +579,7 @@ def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
                         ddcal_dir_list.append(leakage_surface_outdir)
                         ddcal_dirs[ms_obsid] = ddcal_dir_list
             gc.collect()
-            return 0,ddcal_dirs        
+            return 0, ddcal_dirs
         except Exception as e:
             traceback.print_exc()
             gc.collect()
@@ -562,9 +589,7 @@ def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
             return 1, ddcal_dirs
         finally:
             gc.collect()
-            return 0,ddcal_dirs     
-       
-    
+            return 0, ddcal_dirs
 
 
 ################################

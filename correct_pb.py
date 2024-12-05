@@ -99,7 +99,7 @@ def correctpb_spectral_images(imagedir, metafits, interpolate=True, ncpu=-1, mem
                 cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
                 cmd_list_1.append(cmd)
     print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
-    with Parallel(n_jobs=n_jobs,backend="multiprocessing") as parallel:
+    with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
         msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
     del parallel
     with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:

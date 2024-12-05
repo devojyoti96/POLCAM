@@ -3,6 +3,7 @@ from optparse import OptionParser
 from astropy.io import fits
 import os, gc, traceback
 
+
 def fit_leakage_poly(dataq, datai):
     """
     Fit leakage surface polynominal
@@ -47,7 +48,8 @@ def fit_leakage_poly(dataq, datai):
         + CQ[0]
     )
     return data_backup
-    
+
+
 def leakage_surface(imagename, outdir="", threshold=5, bkg_image="", rms_image=""):
     """
     Make Stokes I to other stokes leakage surface
@@ -85,10 +87,14 @@ def leakage_surface(imagename, outdir="", threshold=5, bkg_image="", rms_image="
         bkg_image, rms_image = make_bkg_rms_image(imagename)
     data = fits.getdata(imagename)
     header = fits.getheader(imagename)
-    if header['NAXIS']!=4 or (data.shape[0]!=4 and data.shape[1]!=4):
-        print ("This image: "+imagename+" is not a full stokes image. Please provide full Stokes image.")
+    if header["NAXIS"] != 4 or (data.shape[0] != 4 and data.shape[1] != 4):
+        print(
+            "This image: "
+            + imagename
+            + " is not a full stokes image. Please provide full Stokes image."
+        )
         return 1, None, None, None, None
-    try:    
+    try:
         if header["CTYPE3"] == "STOKES":
             q_surface = fit_leakage_poly(data[0, 1, ...], data[0, 0, ...])
             u_surface = fit_leakage_poly(data[0, 2, ...], data[0, 0, ...])

@@ -4,6 +4,7 @@ from optparse import OptionParser
 
 os.system("rm -rf casa*log")
 
+
 def get_phasecenter(msname):
     """
     Get phase center in degree
@@ -17,7 +18,7 @@ def get_phasecenter(msname):
         Phasecenter RA in degrees
     float
         Phasecenter DEC in degrees
-    """            
+    """
     # Open the FIELD table of the MeasurementSet
     field_table = casacore_table(f"{msname}/FIELD", ack=False)
     # Get the phase center directions (in radians)
@@ -25,10 +26,11 @@ def get_phasecenter(msname):
     field_table.close()
     # Return phase centers and associated field names
     ra, dec = np.degrees(phase_dir[0]), np.degrees(phase_dir[1])
-    if ra<0:
-        ra+=360.0
+    if ra < 0:
+        ra += 360.0
     return ra, dec
-    
+
+
 def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
     """
     Simulate visibilities and import in the measurement set
@@ -70,7 +72,7 @@ def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
         timeres = data_table.getcol("EXPOSURE")[0]
         data_table.close()
         os.system("rm -rf " + msname.split(".ms")[0] + "_model.ms")
-        ra,dec=get_phasecenter(msname)
+        ra, dec = get_phasecenter(msname)
         hyperdrive_cmd = (
             "hyperdrive vis-simulate -m "
             + metafits
@@ -80,8 +82,10 @@ def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
             + str(freqres)
             + " --time-res "
             + str(timeres)
-            + " --ra="+str(ra)
-            + " --dec="+str(dec)
+            + " --ra="
+            + str(ra)
+            + " --dec="
+            + str(dec)
             + " --source-dist-cutoff "
             + str(180)
             + " -s "
@@ -99,7 +103,9 @@ def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
             + "s"
         )
         print(hyperdrive_cmd + "\n")
-        os.system(hyperdrive_cmd)# + " > tmp_" + os.path.basename(msname).split(".ms")[0])
+        os.system(
+            hyperdrive_cmd
+        )  # + " > tmp_" + os.path.basename(msname).split(".ms")[0])
         os.system("rm -rf tmp_" + os.path.basename(msname).split(".ms")[0])
         model_msname = msname.split(".ms")[0] + "_model.ms"
         ########################

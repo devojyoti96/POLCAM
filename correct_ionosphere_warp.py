@@ -9,7 +9,7 @@ os.system("rm -rf casa*log")
 warnings.filterwarnings("ignore")
 
 
-def estimate_warp_map(imagename, outdir="", ncpu =-1, allsky_cat="GGSM.fits"):
+def estimate_warp_map(imagename, outdir="", ncpu=-1, allsky_cat="GGSM.fits"):
     """
     Parameters
     ----------
@@ -54,12 +54,12 @@ def estimate_warp_map(imagename, outdir="", ncpu =-1, allsky_cat="GGSM.fits"):
         or os.path.exists(image_prefix + "_bkg.fits") == False
     ):
         print("Estimating noise map using BANE...\n")
-        if ncpu>0:
-            bane_cmd = "BANE --noclobber --cores " +str(ncpu)+" "+ I_imagename
+        if ncpu > 0:
+            bane_cmd = "BANE --noclobber --cores " + str(ncpu) + " " + I_imagename
         else:
             bane_cmd = "BANE --noclobber " + I_imagename
         print(bane_cmd + "\n")
-        with open(os.devnull, 'w') as fnull:
+        with open(os.devnull, "w") as fnull:
             os.dup2(fnull.fileno(), 1)  # Redirect stdout
             os.dup2(fnull.fileno(), 2)  # Redirect stderr
         os.system(bane_cmd)
@@ -75,19 +75,19 @@ def estimate_warp_map(imagename, outdir="", ncpu =-1, allsky_cat="GGSM.fits"):
     os.dup2(original_stdout, 1)  # Restore stdout
     os.dup2(original_stderr, 2)  # Restore stderr
     print("Source finding using AEGEAN...\n")
-    if ncpu>0:
+    if ncpu > 0:
         aegean_cmd = (
-        "aegean --cores "
-        +str(ncpu)
-        +" --noise "
-        + rms_image
-        + " --background "
-        + bkg_image
-        + " "
-        + I_imagename
-        + " --table "
-        + image_prefix
-        + "_catalog.fits"
+            "aegean --cores "
+            + str(ncpu)
+            + " --noise "
+            + rms_image
+            + " --background "
+            + bkg_image
+            + " "
+            + I_imagename
+            + " --table "
+            + image_prefix
+            + "_catalog.fits"
         )
     else:
         aegean_cmd = (
@@ -102,7 +102,7 @@ def estimate_warp_map(imagename, outdir="", ncpu =-1, allsky_cat="GGSM.fits"):
             + "_catalog.fits"
         )
     print(aegean_cmd + "\n")
-    with open(os.devnull, 'w') as fnull:
+    with open(os.devnull, "w") as fnull:
         os.dup2(fnull.fileno(), 1)  # Redirect stdout
         os.dup2(fnull.fileno(), 2)  # Redirect stderr
     os.system(aegean_cmd)
@@ -121,7 +121,7 @@ def estimate_warp_map(imagename, outdir="", ncpu =-1, allsky_cat="GGSM.fits"):
         + I_imagename
     )
     print(fitswarp_cmd + "\n")
-    with open(os.devnull, 'w') as fnull:
+    with open(os.devnull, "w") as fnull:
         os.dup2(fnull.fileno(), 1)  # Redirect stdout
         os.dup2(fnull.fileno(), 2)  # Redirect stderr
     os.system(fitswarp_cmd)
@@ -138,7 +138,7 @@ def estimate_warp_map(imagename, outdir="", ncpu =-1, allsky_cat="GGSM.fits"):
     bkg_image = outdir + "/" + os.path.basename(bkg_image)
     rms_image = outdir + "/" + os.path.basename(rms_image)
     xm_fits = outdir + "/" + os.path.basename(xm_fits)
-    os.system("rm -rf " + source_catalog+" "+I_imagename)
+    os.system("rm -rf " + source_catalog + " " + I_imagename)
     gc.collect()
     return bkg_image, rms_image, xm_fits
 
@@ -269,7 +269,7 @@ def correct_warp(imagename, xmfits, ncpu=-1, keep_original=True):
         if ncpu < 4:
             n_jobs = ncpu
         else:
-            n_jobs = 4  
+            n_jobs = 4
         with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
             wsclean_images = parallel(
                 delayed(run_fits_warp)(

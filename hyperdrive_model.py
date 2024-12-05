@@ -80,10 +80,8 @@ def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
             + str(freqres)
             + " --time-res "
             + str(timeres)
-            + " --ra "
-            + str(ra)
-            + " --dec "
-            + str(dec)
+            + " --ra="+str(ra)
+            + " --dec="+str(dec)
             + " --source-dist-cutoff "
             + str(180)
             + " -s "

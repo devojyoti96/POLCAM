@@ -59,6 +59,7 @@ def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
         data_table = casacore_table(msname + "/SPECTRAL_WINDOW", readonly=True)
         nchan = data_table.getcol("NUM_CHAN")[0]
         freqres = data_table.getcol("RESOLUTION")[0][0] / 10**3
+        mid_freq = data_table.getcol("REF_FREQUENCY")/10**6
         data_table.close()
         data_table = casacore_table(msname + "/POLARIZATION", readonly=True)
         npol = data_table.getcol("NUM_CORR")[0]
@@ -78,6 +79,8 @@ def import_model(msname, metafits, beamfile, sourcelist, ncpu=-1):
             + metafits
             + " --beam-file "
             + beamfile
+            + "--middle-freq "
+            + str(mid_freq)
             + " --freq-res "
             + str(freqres)
             + " --time-res "

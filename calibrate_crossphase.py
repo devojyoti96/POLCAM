@@ -132,7 +132,6 @@ def crossphasecal(msname, caltable="", uvrange="", gaintable=''):
     crossphase_fit=poly(freqs)
     np.save(caltable, np.array([freqs, crossphase, crossphase_fit, chan_flags], dtype="object"))
     os.system("mv " + caltable + ".npy " + caltable)
-    print (time.time()-starttime)
     return caltable
 
 

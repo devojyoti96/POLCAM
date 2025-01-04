@@ -91,20 +91,31 @@ def correctpb_spectral_images(imagedir, metafits, interpolate=True, ncpu=-1, mem
                 + " --verbose False --interpolated "
                 + str(interpolate)
             )
-            if coch in pb_coch:
-                cmd += " --pb_jones_file " + imagedir + "/pbs/pbfile_" + coch + ".npy"
-                cmd_list_2.append(cmd)
-            else:
-                pb_coch.append(coch)
-                cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
-                cmd_list_1.append(cmd)
+            if (
+                os.path.exists(
+                    imagedir + "/pbcor_images/" + os.path.basename(outfile) + ".fits"
+                )
+                == False
+                or os.path.exists(imagedir + "/pbs/pbfile_" + coch + ".npy") == False
+            ):
+                if coch in pb_coch:
+                    cmd += (
+                        " --pb_jones_file " + imagedir + "/pbs/pbfile_" + coch + ".npy"
+                    )
+                    cmd_list_2.append(cmd)
+                else:
+                    pb_coch.append(coch)
+                    cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
+                    cmd_list_1.append(cmd)
     print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
-    with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
-        msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
-    del parallel
-    with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
-        msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
-    del parallel
+    if len(cmd_list_1) > 0:
+        with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
+            msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
+        del parallel
+    if len(cmd_list_2) > 0:
+        with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
+            msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
+        del parallel
     os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")
     print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
     total_images = len(glob.glob(imagedir + "/pbcor_images/*"))

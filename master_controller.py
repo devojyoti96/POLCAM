@@ -1,9 +1,6 @@
 import glob, os, psutil, traceback, gc, tempfile, shutil
 from basic_func import *
 from optparse import OptionParser
-from correct_pb import *
-from correct_ionosphere_warp import *
-from correct_polcon import *
 
 os.system("rm -rf casa*log")
 
@@ -74,10 +71,12 @@ def perform_model_import(msdir, basedir, cpu_percent=10, mem_percent=20):
                 free_jobs -= 1
             if count >= max_jobs or free_jobs == 0:
                 free_jobs = wait_for_resources(
-                    basedir + "/.Finished_model",
+                    basedir + "/.Running_model",
                     cpu_threshold=cpu_percent,
                     memory_threshold=mem_percent,
                 )
+                if free_jobs == -1:
+                    free_jobs = max_jobs
                 print("Freeded jobs: ", free_jobs)
         while True:
             finished_files = glob.glob(basedir + "/.Finished_model*")
@@ -156,15 +155,16 @@ def perform_all_calibration(
             os.system("bash " + batch_file)
             print("Spawned command: " + cmd + "\n")
             count += 1
-            if count >= max_jobs:
+            if free_jobs > 0:
+                free_jobs -= 1
+            if count >= max_jobs or free_jobs == 0:
                 free_jobs = wait_for_resources(
-                    basedir + "/.Finished_calibrate",
+                    basedir + "/.Running_calibrate",
                     cpu_threshold=cpu_percent,
                     memory_threshold=mem_percent,
                 )
-                total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
-                max_jobs = int(total_memory / mssize)
-                count = 0
+                if free_jobs == -1:
+                    free_jobs = max_jobs
                 print("Maximum freed jobs: ", max_jobs)
         while True:
             finished_files = glob.glob(basedir + "/.Finished_calibrate*")
@@ -295,10 +295,12 @@ def perform_all_applycal(
                     free_jobs -= 1
                 if count >= max_jobs or free_jobs == 0:
                     free_jobs = wait_for_resources(
-                        basedir + "/.Finished_applycal",
+                        basedir + "/.Running_applycal",
                         cpu_threshold=cpu_percent,
                         memory_threshold=mem_percent,
                     )
+                    if free_jobs == -1:
+                        free_jobs = max_jobs
                     print("Freed jobs: ", free_jobs)
         while True:
             finished_files = glob.glob(basedir + "/.Finished_applycal*")
@@ -322,6 +324,7 @@ def perform_all_spectral_imaging(
     msdir,
     basedir,
     nchan,
+    imaging_per_coarse=False,
     multiscale_scales=[],
     weight="briggs",
     robust=0.0,
@@ -339,18 +342,24 @@ def perform_all_spectral_imaging(
         trial_ms = mslist[0]
         mssize = get_column_size(trial_ms, "DATA")  # In GB
         total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
-        max_jobs = int(total_memory / (2 * mssize))
-        print("Maximum numbers of jobs to spawn at once:", max_jobs)
         count = 0
         free_jobs = -1
+        max_jobs = int(total_memory / (2 * mssize))
         absmem = total_memory / max_jobs
         available_cpu = int(psutil.cpu_count() * (100 - psutil.cpu_percent()) / 100.0)
         ncpu = int(available_cpu / max_jobs)
         if ncpu < 1:
             ncpu = 1
-            max_jobs = total_cpus
+            max_jobs = ncpu
+        print("Maximum numbers of jobs to spawn at once:", max_jobs)
         scales = ",".join([str(i) for i in multiscale_scales])
         for ms in mslist:
+            if imaging_per_coarse or nchan == -1:
+                print("Imaging per coarse channels for ms: ", os.path.basename(ms))
+                msmd = msmetadata()
+                msmd.open(ms)
+                nchan = int(msmd.bandwidths(0) / (1280 * 1000))
+                msmd.close()
             cmd = (
                 "python3 do_imaging.py --msname "
                 + ms
@@ -391,10 +400,12 @@ def perform_all_spectral_imaging(
                 free_jobs -= 1
             if count >= max_jobs or free_jobs == 0:
                 free_jobs = wait_for_resources(
-                    basedir + "/.Finished_imaging",
+                    basedir + "/.Running_imaging",
                     cpu_threshold=cpu_percent,
                     memory_threshold=mem_percent,
                 )
+                if free_jobs == -1:
+                    free_jobs = max_jobs
                 print("Freed jobs: ", free_jobs)
         while True:
             finished_files = glob.glob(basedir + "/.Finished_imaging*")
@@ -414,19 +425,21 @@ def perform_all_spectral_imaging(
         return 1
 
 
-def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
+def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent=20):
     """
     Estimate all direction dependent calibration in image plane
     Parameters
     ----------
     msdir : str
         Name of the measurement set directory
+    basedir : str
+        Base directory
     image_basedir : str
         Image base directory name
-    ncpu : int
-        Number of CPU threads to use
-    mem : float
-        Memory to use in GB
+    cpu_percent : float
+        Free CPU percentage
+    mem_percent : float
+        Free memory percentage
     Returns
     -------
     dict
@@ -434,162 +447,111 @@ def make_all_ddcal(msdir, image_basedir, ncpu=-1, mem=-1):
     """
     msmd = msmetadata()
     mslist = glob.glob(msdir + "/*.ms")
-    ddcal_dirs = {}
-    with tempfile.TemporaryDirectory(dir=image_basedir) as tempdir:
-        os.environ["JOBLIB_TEMP_FOLDER"] = tempdir
-        try:
-            for ms in mslist:
-                ddcal_dir_list = []
-                ms_obsid = os.path.basename(ms).split(".ms")[0]
-                metafits = msdir + "/" + ms_obsid + ".metafits"
-                msmd.open(ms)
-                total_coarsechan = int(msmd.bandwidths(0) / (1280 * 1000))
-                msmd.close()
-                total_coarsechan = 10
-                imagedir = glob.glob(
-                    image_basedir
-                    + "/imagedir_MFS_ch_"
-                    + str(total_coarsechan)
-                    + "_"
-                    + str(ms_obsid)
-                )
-                if len(imagedir) == 0:
-                    print(
-                        "No suitable image directory with coarse channel: "
-                        + str(total_coarsechan)
-                        + " and ObsID: "
-                        + str(ms_obsid)
-                    )
-                else:
-                    imagedir = imagedir[0]
-                    os.system("rm -rf " + imagedir + "/*_I*")
-                    image_list = glob.glob(imagedir + "/images/*.fits")
-                    filtered_image_list = []
-                    for image in image_list:
-                        if "MFS" not in os.path.basename(image):
-                            filtered_image_list.append(image)
-                    image_list = filtered_image_list
-                    if len(image_list) == 0:
-                        print("No images in image direcory: " + imagedir + "/images/")
-                    else:
-                        ######################################
-                        # Primary beam correction
-                        ######################################
-                        print("#######################")
-                        print("Estimating primary beams ....")
-                        print("#######################")
-                        pbcor_image_dir, pb_dir, total_images = (
-                            correctpb_spectral_images(
-                                imagedir + "/images",
-                                metafits,
-                                interpolate=True,
-                                ncpu=ncpu,
-                                mem=mem,
-                            )
-                        )
-                        ddcal_dir_list.append(pbcor_image_dir)
-                        ddcal_dir_list.append(pb_dir)
-                        ######################################
-                        # Ionospheric warp surface
-                        ######################################
-                        warp_outdir = imagedir + "/warps"
-                        if os.path.isdir(warp_outdir) == False:
-                            os.makedirs(warp_outdir)
-                        print("#######################")
-                        print("Estimating ionosphere warp surfaces....")
-                        print("#######################")
-                        if ncpu == -1:
-                            nthread = psutil.cpu_count(logical=True)
-                        else:
-                            nthread = ncpu
-                        available_mem = psutil.virtual_memory().available / 1024**3
-                        if mem == -1:
-                            absmem = available_mem
-                        elif mem > available_mem:
-                            absmem = available_mem
-                        else:
-                            absmem = mem
-                        file_size = os.path.getsize(image_list[0]) / (1024**3)
-                        max_jobs = int(absmem / file_size)
-                        if nthread < max_jobs:
-                            n_jobs = nthread
-                        else:
-                            n_jobs = max_jobs
-                        print("Total parallel jobs: " + str(n_jobs) + "\n")
-                        with Parallel(
-                            n_jobs=n_jobs, backend="multiprocessing"
-                        ) as parallel:
-                            results = parallel(
-                                delayed(estimate_warp_map)(
-                                    imagename,
-                                    outdir=warp_outdir,
-                                    allsky_cat=source_model_fits,
-                                )
-                                for imagename in image_list
-                            )
-                        ddcal_dir_list.append(warp_outdir)
-                        #########################################
-                        # Polconversion estimation
-                        #########################################
-                        print("#######################")
-                        print("Estimating ionosphere warp surfaces....")
-                        print("#######################")
-                        leakage_surface_outdir = imagedir + "/leakage_surfaces"
-                        if os.path.isdir(leakage_surface_outdir) == False:
-                            os.makedirs(leakage_surface_outdir)
-                        bkg_image_list = []
-                        rms_image_list = []
-                        for imagename in image_list:
-                            bkg_image = glob.glob(
-                                warp_outdir
-                                + "/"
-                                + os.path.basename(imagename).split(".fits")[0]
-                                + "*bkg*"
-                            )
-                            if len(bkg_image) > 0:
-                                bkg_image = bkg_image[0]
-                            else:
-                                bkg_image = ""
-                            rms_image = glob.glob(
-                                warp_outdir
-                                + "/"
-                                + os.path.basename(imagename).split(".fits")[0]
-                                + "*rms*"
-                            )
-                            if len(rms_image) > 0:
-                                rms_image = rms_image[0]
-                            else:
-                                rms_image = ""
-                            bkg_image_list.append(bkg_image)
-                            rms_image_list.append(rms_image)
-                        with Parallel(
-                            n_jobs=n_jobs, backend="multiprocessing"
-                        ) as parallel:
-                            results = parallel(
-                                delayed(leakage_surface)(
-                                    image_list[i],
-                                    outdir=leakage_surface_outdir,
-                                    threshold=5,
-                                    bkg_image=bkg_image_list[i],
-                                    rms_image=rms_image_list[i],
-                                )
-                                for i in range(len(image_list))
-                            )
-                        del parallel
-                        ddcal_dir_list.append(leakage_surface_outdir)
-                        ddcal_dirs[ms_obsid] = ddcal_dir_list
-            gc.collect()
-            return 0, ddcal_dirs
-        except Exception as e:
-            traceback.print_exc()
-            gc.collect()
+    imagedir_list = []
+    metafits_list = []
+    for ms in mslist:
+        ddcal_dir_list = []
+        ms_obsid = os.path.basename(ms).split(".ms")[0]
+        metafits = msdir + "/" + ms_obsid + ".metafits"
+        msmd.open(ms)
+        total_coarsechan = int(msmd.bandwidths(0) / (1280 * 1000))
+        msmd.close()
+        imagedir = glob.glob(
+            image_basedir
+            + "/imagedir_MFS_ch_"
+            + str(total_coarsechan)
+            + "_*"
+            + str(ms_obsid)
+        )
+        if len(imagedir) == 0:
             print(
-                "#####################\nDirection dependent calibration jobs are finished unsuccessfully.\n#####################\n"
+                "No suitable image directory with coarse channel: "
+                + str(total_coarsechan)
+                + " and ObsID: "
+                + str(ms_obsid)
             )
-            return 1, ddcal_dirs
-        finally:
-            gc.collect()
-            return 0, ddcal_dirs
+        else:
+            imagedir_list.append(imagedir)
+            metafits_list.append(metafits)
+    ddcal_dirs = {}
+    os.system("rm -rf " + basedir + "/.Finished_ddcal*")
+    count = 0
+    free_jobs = -1
+    total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
+    max_jobs = psutil.cpu_count()
+    if len(imagedir_list) < max_jobs:
+        max_jobs = len(imagedir_list)
+    available_cpu = int(psutil.cpu_count() * (100 - psutil.cpu_percent()) / 100.0)
+    absmem = total_memory / max_jobs
+    ncpu = int(available_cpu / max_jobs)
+    if ncpu < 1:
+        ncpu = 1
+        max_jobs = ncpu
+    try:
+        for k in range(len(imagedir_list)):
+            imagedir = imagedir_list[k]
+            metafits = metafits_list[k]
+            ddcal_dir_list = []
+            imagedir = imagedir[0]
+            os.system("rm -rf " + imagedir + "/images/*_I.fits")
+            image_list = glob.glob(imagedir + "/images/*.fits")
+            filtered_image_list = []
+            for image in image_list:
+                if "MFS" not in os.path.basename(image):
+                    filtered_image_list.append(image)
+            image_list = filtered_image_list
+            if len(image_list) == 0:
+                print("No images in image direcory: " + imagedir + "/images/")
+            else:
+                cmd = (
+                    "python3 calibrate_ddcal.py --imagedir "
+                    + imagedir
+                    + " --metafits "
+                    + metafits
+                    + " --source_model "
+                    + source_model_fits
+                    + " --ncpu "
+                    + str(ncpu)
+                    + " --absmem "
+                    + str(absmem)
+                )
+                basename = "ddcal_" + os.path.basename(imagedir)
+                batch_file = create_batch_script_nonhpc(cmd, basedir, basename)
+                os.system("bash " + batch_file)
+                print("Spawned command: " + cmd + "\n")
+                count += 1
+                if free_jobs > 0:
+                    free_jobs -= 1
+                if count >= max_jobs or free_jobs == 0:
+                    free_jobs = wait_for_resources(
+                        basedir + "/.Running_ddcal",
+                        cpu_threshold=cpu_percent,
+                        memory_threshold=mem_percent,
+                    )
+                    if free_jobs == -1:
+                        free_jobs = max_jobs
+                    print("Freed jobs: ", free_jobs)
+        while True:
+            finished_files = glob.glob(basedir + "/.Finished_ddcal*")
+            if len(finished_files) >= count:
+                break
+        print(
+            "#####################\nDirection dependent calibration jobs are finished successfully.\n#####################\n"
+        )
+        ddcal_dirname_files = glob.glob(msdir + "/*_ddcal_dirs.npy")
+        for ddcal_dirname in ddcal_dirname_files:
+            obsid = os.path.basename(ddcal_dirname).split("_ddcal_dirs.npy")[0]
+            dirlist = np.load(ddcal_dirname, allow_pickle=True).tolist()
+            ddcal_dirs[obsid] = dirlist
+        gc.collect()
+        return 0, ddcal_dirs
+    except Exception as e:
+        traceback.print_exc()
+        gc.collect()
+        print(
+            "#####################\nDirection dependent calibration jobs are finished unsuccessfully.\n#####################\n"
+        )
+        return 1, ddcal_dirs
 
 
 ################################

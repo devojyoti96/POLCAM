@@ -262,11 +262,12 @@ def create_batch_script_nonhpc(cmd, basedir, basename):
         os.makedirs(basedir + "/logs")
     outputfile = basedir + "/logs/" + basename + ".log"
     pid_file = basedir + "/pids.txt"
+    running_touch_file = basedir + "/.Running_" + basename
     finished_touch_file = basedir + "/.Finished_" + basename
     os.system("rm -rf " + finished_touch_file + "*")
     finished_touch_file_error = finished_touch_file + "_error"
     finished_touch_file_success = finished_touch_file + "_0"
-    cmd_file_content = f"""{cmd}\nsleep 2 \nexit_code=$?\nif [ $? -ne 0 ]\nthen touch {finished_touch_file_error}\nelse touch {finished_touch_file_success}\nfi"""
+    cmd_file_content = f"""touch {running_touch_file}\n{cmd}\nsleep 2\nexit_code=$?\nrm -rf {running_touch_file}\nif [ $? -ne 0 ]\nthen touch {finished_touch_file_error}\nelse touch {finished_touch_file_success}\nfi"""
     batch_file_content = f"""export PYTHONUNBUFFERED=1\nnohup sh {cmd_batch}> {outputfile} 2>&1 &\necho $! >> {pid_file}\nsleep 2\n rm -rf {batch_file}\n rm -rf {cmd_batch}"""
     if os.path.exists(cmd_batch):
         os.system("rm -rf " + cmd_batch)
@@ -529,6 +530,104 @@ def make_bkg_rms_image(imagename):
     return bkg_image, rms_image
 
 
+def correct_leakage_surface(
+    imagename,
+    q_surface="",
+    u_surface="",
+    v_surface="",
+    bkg_image="",
+    rms_image="",
+    leakage_cor_threshold=5.0,
+    keep_original=False,
+):
+    """
+    Correct Stokes I to other Stokes leakages
+    Parameters
+    ----------
+    imagename : str
+        Imagename
+    q_surface : str
+        User supplied Stokes Q leakage surface
+    u_surface : str
+        User supplied Stokes U leakage surface
+    v_surface : str
+        User supplied Stokes V leakage surface
+    bkg_image : str
+        Background imagename
+    rms_image : str
+        rms imagename
+    leakage_cor_threashold : float
+        Threshold for determining leakage surface (If surfaces are provided, it has no use)
+    keep_original : bool
+        Keep original image and overwrite it or not
+    Returns
+    -------
+    str
+        Output imagename
+    """
+    if (q_surface == "" or u_surface == "" or v_surface == "") or (
+        os.path.exists(q_surface) == False
+        or os.path.exists(u_surface) == False
+        or os.path.exists(v_surface) == False
+    ):
+        if (bkg_image == "" or rms_image == "") or (
+            os.path.exists(bkg_image) == False or os.path.exists(rms_image) == False
+        ):
+            bkg_image, rms_image = make_bkg_rms_image(imagename)
+        print("Estimating residual leakage surfaces ....\n")
+        msg, q_surface, u_surface, v_surface = leakage_surface(
+            pbcor_image,
+            threshold=float(leakage_cor_threshold),
+            bkg_image=bkg_image,
+            rms_image=rms_image,
+        )
+    if (
+        os.path.exists(q_surface)
+        and os.path.exists(u_surface)
+        and os.path.exists(v_surface)
+    ):
+        print("Correcting residual leakage surfaces ....\n")
+        q_surface_data = fits.getdata(q_surface)
+        u_surface_data = fits.getdata(u_surface)
+        v_surface_data = fits.getdata(v_surface)
+        data = fits.getdata(imagename)
+        header = fits.getheader(imagename)
+        if header["CTYPE3"] == "STOKES":
+            data[0, 1, ...] = data[0, 1, ...] - (
+                q_surface_data[0, 0, ...] * data[0, 0, ...]
+            )
+            data[0, 2, ...] = data[0, 2, ...] - (
+                q_surface_data[0, 0, ...] * data[0, 0, ...]
+            )
+            data[0, 3, ...] = data[0, 3, ...] - (
+                q_surface_data[0, 0, ...] * data[0, 0, ...]
+            )
+        else:
+            data[1, 0, ...] = data[1, 0, ...] - (
+                q_surface_data[0, 0, ...] * data[0, 0, ...]
+            )
+            data[2, 0, ...] = data[2, 0, ...] - (
+                q_surface_data[0, 0, ...] * data[0, 0, ...]
+            )
+            data[3, 0, ...] = data[3, 0, ...] - (
+                q_surface_data[0, 0, ...] * data[0, 0, ...]
+            )
+        if keep_original == False:
+            fits.writeto(imagename, data, header, overwrite=True)
+            return imagename
+        else:
+            fits.writeto(
+                imagename.split(".fits")[0] + "_leakagecor.fits",
+                data,
+                header,
+                overwrite=True,
+            )
+            return imagename.split(".fits")[0] + "_leakagecor.fits"
+    else:
+        print("Cound not perform leakage surface correction.")
+        return
+
+
 def cal_field_averaged_polfrac(
     pointing_ra_deg,
     pointing_dec_deg,
@@ -646,13 +745,13 @@ def check_resource_availability(cpu_threshold=20, memory_threshold=20):
     return cpu_available and memory_sufficient and swap_sufficient
 
 
-def wait_for_resources(finished_file_prefix, cpu_threshold=20, memory_threshold=20):
+def wait_for_resources(basename, cpu_threshold=20, memory_threshold=20):
     """
     Wait for free hardware resources
     Parameters
     ----------
-    finished_file_prefix : str
-        Finished file prefix name
+    basename : str
+        Basename to search
     cpu_threshold : float
         Percentage of free CPU
     memory_threshold : float
@@ -664,15 +763,18 @@ def wait_for_resources(finished_file_prefix, cpu_threshold=20, memory_threshold=
     """
     time.sleep(5)
     count = 0
-    finished_file_list = glob.glob(finished_file_prefix + "*")
+    running_file_list = glob.glob(basename + "*")
     while True:
         resource_available = check_resource_availability(
             cpu_threshold=cpu_threshold, memory_threshold=memory_threshold
         )
         if resource_available:
-            new_finished_file_list = glob.glob(finished_file_prefix + "*")
-            if len(new_finished_file_list) - len(finished_file_list) > 0:
-                free_jobs = len(new_finished_file_list) - len(finished_file_list)
+            new_running_file_list = glob.glob(basename + "*")
+            if len(running_file_list) == 0:
+                gc.collect()
+                return -1
+            if len(new_running_file_list) < len(running_file_list):
+                free_jobs = len(running_file_list) - len(new_running_file_list)
                 gc.collect()
                 return free_jobs
             else:

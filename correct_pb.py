@@ -86,7 +86,7 @@ def correctpb_spectral_images(imagedir, metafits, interpolate=True, ncpu=-1, mem
                 + outfile
                 + " --metafits "
                 + metafits
-                + " --IAU_order False --image_conv fits --num_threads "
+                + " --IAU_order False --num_threads "
                 + str(per_job_cpu)
                 + " --verbose False --interpolated "
                 + str(interpolate)
@@ -107,20 +107,25 @@ def correctpb_spectral_images(imagedir, metafits, interpolate=True, ncpu=-1, mem
                     pb_coch.append(coch)
                     cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
                     cmd_list_1.append(cmd)
-    print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
-    if len(cmd_list_1) > 0:
-        with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
-            msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
-        del parallel
-    if len(cmd_list_2) > 0:
-        with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
-            msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
-        del parallel
-    os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")
-    print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
+    if len(cmd_list_1)== 0 and len(cmd_list_2) == 0:
+         print ("No images to correct. PB correction is already done.")    
+    else:     
+        print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
+        if len(cmd_list_1) > 0:
+            with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
+                msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_1)
+            del parallel
+        if len(cmd_list_2) > 0:
+            with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
+                msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
+            del parallel
+        total_images = len(glob.glob(imagedir + "/*pbcor.fits"))
+        if total_images>0:
+            os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")   
+        print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
     total_images = len(glob.glob(imagedir + "/pbcor_images/*"))
     gc.collect()
-    return imagedir + "/pbcor_images", imagedir + "/pbs", total_images
+    return imagedir + "/pbcor_images/", imagedir + "/pbs/", total_images
 
 
 ################################
@@ -167,7 +172,7 @@ def main():
         print("Please provide necessary input parameters.\n")
         return 1
     try:
-        pbcor_image_dir, total_images = correctpb_spectral_images(
+        pbcor_image_dir, pb_dir, total_images = correctpb_spectral_images(
             options.imagedir,
             options.metafits,
             interpolate=eval(str(options.interpolate)),

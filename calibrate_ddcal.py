@@ -242,7 +242,7 @@ def perform_leakage_cal(imagedir, metafits, source_model_fits, ncpu=-1, mem=-1):
     # Polconversion estimation
     #########################################
     print("#######################")
-    print("Estimating ionosphere warp surfaces....")
+    print("Estimating leakage surfaces....")
     print("#######################")
     leakage_surface_outdir = imagedir + "/leakage_surfaces"
     if os.path.isdir(leakage_surface_outdir) == False:

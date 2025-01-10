@@ -2,9 +2,25 @@ from casatools import table, msmetadata
 from casatasks import importfits, exportfits, imsubimage
 from astropy.io import fits
 from astropy.table import Table
-import numpy as np, os, psutil, time, glob, gc, scipy, copy
+import numpy as np, os, psutil, time, glob, gc, scipy, copy, math
+from pathlib import Path
 
 os.system("rm -rf casa*log")
+
+def get_directory_size(directory):
+    """Calculate the total size of a directory and its subdirectories.
+    Parameters
+    ----------
+    direcotry : str
+        Directory name
+    Returns
+    -------
+    float
+        Directory size in GB   
+    """
+    dir_size = sum(f.stat().st_size for f in Path(directory).rglob('*') if f.is_file())
+    dir_size = dir_size/(1024 ** 3)
+    return dir_size
 
 
 def freq_to_MWA_coarse(freq):
@@ -110,7 +126,7 @@ def calc_cellsize(msname, num_pixel_in_psf):
             Pixel size in arcsec
     """
     psf = calc_psf(msname)
-    pixel = int(psf / num_pixel_in_psf)
+    pixel = math.ceil(psf / num_pixel_in_psf)
     return pixel
 
 

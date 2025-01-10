@@ -13,12 +13,14 @@ def perform_spectrotemporal_imaging(
     nchan=1,
     ntime=1,
     imagedir="",
+    use_multiscale=True,
     multiscale_scales="",
     weight="briggs",
     robust=0.0,
     pol="IQUV",
     FWHM=True,
-    threshold=5,
+    threshold=3,
+    niter=100000,
     minuv_l=-1,
     savemodel=False,
     ncpu=-1,
@@ -40,6 +42,8 @@ def perform_spectrotemporal_imaging(
         Numbers of temporal slices
     imagedir : str
         Imaging directory
+    use_multiscale : bool
+        Use multiscale or not
     multiscale_scales : list
         Multiscale scales
     weight : str
@@ -52,6 +56,8 @@ def perform_spectrotemporal_imaging(
         Image upto FWHM or first null
     threshold : float
         Auto-threshold
+    niter: int
+        Number of iterations    
     minuv_l : float
         Minimum uv-range in lambda
     savemodel : bool
@@ -166,11 +172,12 @@ def perform_spectrotemporal_imaging(
         "-weight " + weight,
         "-name " + prefix,
         "-pol " + str(pol),
-        "-niter 2000",
+        "-niter "+str(niter),
         "-mgain 0.85",
         "-nmiter 5",
         "-gain 0.1",
-        "-auto-threshold " + str(threshold) + " -auto-mask " + str(threshold + 0.1),
+        "-join-channels",
+        "-auto-threshold 1 -auto-mask " + str(threshold),
         "-minuv-l " + str(minuv_l),
         "-channels-out " + str(nchan),
         "-intervals-out " + str(ntime),
@@ -178,9 +185,10 @@ def perform_spectrotemporal_imaging(
     ]
     if savemodel == False:
         wsclean_args.append("-no-update-model-required")
-    if multiscale_scales != "":
+    if use_multiscale:
         wsclean_args.append("-multiscale")
         wsclean_args.append("-multiscale-gain 0.1")
+    if multiscale_scales != "":    
         wsclean_args.append("-multiscale-scales " + multiscale_scales)
     if ncpu > 0:
         wsclean_args.append("-j " + str(ncpu))
@@ -223,8 +231,8 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
         List of image cubes
     """
 
-    def get_outfile_name(imagename, imagetype, pol):
-        t_ch_split = imagename.split(image_prefix + "-")[-1].split("-")[1]
+    def get_outfile_name(image_prefix, imagename, imagetype, pol):
+        t_ch_split = os.path.basename(imagename).split(image_prefix)[1].split("-")[1]
         try:
             ch = str(int(t_ch_split))
         except:
@@ -257,7 +265,7 @@ def final_image_cubes(imagedir, image_prefix, imagetype="image", ncpu=-1, mem=-1
         return outfile_name
 
     def get_stokes_cube(image_prefix, imagetype, pol, imagelist=[]):
-        outfile_name = get_outfile_name(imagelist[0], imagetype, pol)
+        outfile_name = get_outfile_name(image_prefix, imagelist[0], imagetype, pol)
         output_image = make_stokes_cube(
             imagelist,
             outfile_name,
@@ -448,6 +456,13 @@ def main():
         metavar="String",
     )
     parser.add_option(
+        "--use_multiscale",
+        dest="use_multiscale",
+        default=True,
+        help="Use multiscale or not",
+        metavar="Boolean",
+    )
+    parser.add_option(
         "--multiscale_scales",
         dest="multiscale_scales",
         default="",
@@ -471,9 +486,16 @@ def main():
     parser.add_option(
         "--threshold",
         dest="threshold",
-        default=6.0,
+        default=3.0,
         help="Auto threshold for CLEANing",
         metavar="Float",
+    )
+    parser.add_option(
+        "--niter",
+        dest="niter",
+        default=100000,
+        help="Number of iterations",
+        metavar="Integer",
     )
     parser.add_option(
         "--pol",
@@ -550,10 +572,12 @@ def main():
         nchan=int(options.nchan),
         ntime=int(options.ntime),
         imagedir=options.imagedir,
+        use_multiscale=eval(str(options.use_multiscale)),
         multiscale_scales=options.multiscale_scales,
         weight=options.weight,
         robust=float(options.robust),
         threshold=float(options.threshold),
+        niter=int(options.niter),
         minuv_l=float(options.minuv_l),
         pol=options.pol,
         FWHM=eval(str(options.FWHM)),

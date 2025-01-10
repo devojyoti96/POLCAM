@@ -377,7 +377,6 @@ def mwapb_cor(
     verbose=False,
     gridpoint=-1,
     nthreads=1,
-    conv="iau",
     restore=False,
     MWA_PB_path="",
     output_stokes="",
@@ -408,8 +407,6 @@ def mwapb_cor(
             MWA gridpoint number (default : -1, provide if you do not have metafits file)
     nthreads : int
             Number of cpu threads use for parallel computing
-    conv : str
-            Image coordinate convention (default : \'iau\') (options : \'iau\' and \'mwa\')
     restore : bool
             Whether correct for MWA primary beam or restore the correction
     MWA_PB_path : str
@@ -991,7 +988,7 @@ def main():
     parser.add_option(
         "--IAU_order",
         dest="iau_order",
-        default=True,
+        default=False,
         help="PB Jones in IAU order or not",
         metavar="Boolean",
     )
@@ -1008,13 +1005,6 @@ def main():
         default=1,
         help="Numbers of CPU threads to use",
         metavar="Integer",
-    )
-    parser.add_option(
-        "--image_conv",
-        dest="conv",
-        default="iau",
-        help="Image convension",
-        metavar="String",
     )
     parser.add_option(
         "--outfile",
@@ -1087,7 +1077,6 @@ def main():
             verbose=eval(str(options.verbose)),
             gridpoint=int(options.gridpoint),
             nthreads=nthreads,
-            conv=str(options.conv),
             restore=eval(str(options.restore)),
             save_pb_file=options.save_pb,
             differential_pb=eval(str(options.differential_pb)),

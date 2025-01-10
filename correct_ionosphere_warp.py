@@ -1,4 +1,4 @@
-import os, glob, logging, gc, warnings, psutil
+import os, glob, logging, gc, warnings, psutil, numpy as np
 from casatasks import imsubimage, exportfits
 from astropy.io import fits
 from basic_func import make_stokes_cube, make_bkg_rms_image
@@ -77,7 +77,7 @@ def estimate_warp_map(imagename, outdir="", ncpu=-1, allsky_cat="GGSM.fits"):
     print("Source finding using AEGEAN...\n")
     if ncpu > 0:
         aegean_cmd = (
-            "aegean --cores "
+            "aegean --seedclip 10 --floodclip 6 --cores "
             + str(ncpu)
             + " --noise "
             + rms_image
@@ -111,7 +111,7 @@ def estimate_warp_map(imagename, outdir="", ncpu=-1, allsky_cat="GGSM.fits"):
     print("Ionospheric correction using fits_warp...\n")
     source_catalog = image_prefix + "_catalog_comp.fits"
     fitswarp_cmd = (
-        "fits_warp.py --incat "
+        "fits_warp.py --plot --incat "
         + source_catalog
         + " --refcat "
         + allsky_cat
@@ -130,11 +130,12 @@ def estimate_warp_map(imagename, outdir="", ncpu=-1, allsky_cat="GGSM.fits"):
     os.close(original_stdout)
     os.close(original_stderr)
     xm_fits = image_prefix + "_xm.fits"
+    xm_plots = image_prefix + "_xm.png"
     if outdir == "":
         outdir = os.path.dirname(imagename) + "/warps"
     if os.path.isdir(outdir) == False:
         os.makedirs(outdir)
-    os.system("mv " + bkg_image + " " + rms_image + " " + xm_fits + " " + outdir)
+    os.system("mv " + bkg_image + " " + rms_image + " " + xm_fits + " " + xm_plots + " " + outdir)
     bkg_image = outdir + "/" + os.path.basename(bkg_image)
     rms_image = outdir + "/" + os.path.basename(rms_image)
     xm_fits = outdir + "/" + os.path.basename(xm_fits)
@@ -143,23 +144,32 @@ def estimate_warp_map(imagename, outdir="", ncpu=-1, allsky_cat="GGSM.fits"):
     return bkg_image, rms_image, xm_fits
 
 
-def correct_warp(imagename, xmfits, ncpu=-1, keep_original=True):
+def correct_warp(imagename, xmfits_dir, ncpu=-1, outdir=''):
     """
     Parameters
     ----------
     imagename : str
         Name of the fits image
-    xmfits : str
-        Unwarped catalog fits file
+    xmfits_dir : str
+        Unwarped catalog fits directory
     ncpu : int
         Number of cpu threads to use
-    keep_original : bool
-        Keep original image or replace it
+    outdir : str
+        Output directory name
     Returns
     -------
     str
         Unwraped fits image
     """
+    if outdir=='':
+        outdir=os.path.dirname(imagename)
+    if os.path.exists(outdir)==False:
+        os.makedirs(outdir)  
+    xmfits_list=glob.glob(xmfits_dir+'/*xm.fits')
+    xmfits_coarse_chs=np.array([os.path.basename(xm).split('-coch-')[-1].split('-')[0] for xm in xmfits_list]).astype('int')
+    image_coarse_ch=int(os.path.basename(imagename).split('-coch-')[-1].split('-')[0])
+    pos=np.where(xmfits_coarse_chs==image_coarse_ch)[0][0]
+    xmfits=xmfits_list[pos]
     if ncpu < 0:
         ncpu = int(psutil.cpu_cpunt() * (100 - psutil.cpu_percent()) / 100.0)
 
@@ -280,104 +290,12 @@ def correct_warp(imagename, xmfits, ncpu=-1, keep_original=True):
         del parallel
         output_image = make_stokes_cube(
             wsclean_images,
-            image_prefix + "_unwarped",
+            image_prefix + "_unwarped.fits",
             imagetype="fits",
             keep_wsclean_images=False,
-        )
-        if keep_original == False:
-            os.system("rm -rf " + imagename)
-            os.system("mv " + output_image + " " + imagename)
-        else:
-            imagename = output_image
+        )  
     else:
         print("########################\n")
-        unwarped_file = run_fits_warp(xmfits, imagename, ncpu)
-        if keep_original == False:
-            os.system("rm -rf " + imagename)
-            os.system("mv " + unwarped_file + " " + imagename)
-        else:
-            imagename = unwarped_file
-    return imagename
-
-
-def main():
-    usage = "Perform correction of direction dependent ionosphere"
-    parser = OptionParser(usage=usage)
-    parser.add_option(
-        "--imagename",
-        dest="imagename",
-        default=None,
-        help="Name of the image",
-        metavar="String",
-    )
-    parser.add_option(
-        "--do_correction",
-        dest="do_correction",
-        default=True,
-        help="Perform ionospheric warp correction or only make warp surface",
-        metavar="Boolean",
-    )
-    parser.add_option(
-        "--warp_cat",
-        dest="warp_cat",
-        default="",
-        help="Perform ionospheric warp correction using this warp catalog",
-        metavar="String",
-    )
-    parser.add_option(
-        "--keep_original",
-        dest="keep_original",
-        default=True,
-        help="Keep original image or overwrite it",
-        metavar="Boolean",
-    )
-    parser.add_option(
-        "--ncpu",
-        dest="ncpu",
-        default=-1,
-        help="Numbers of CPU threads to use",
-        metavar="Integer",
-    )
-    (options, args) = parser.parse_args()
-    if options.imagename == None or os.path.exists(options.imagename) == False:
-        print("Please provide correct imagename.")
-        gc.collect()
-        return 1
-    try:
-        if options.warp_cat == "" or os.path.exists(options.warp_cat) == False:
-            print("Determining ionospheric warp surface...")
-            warp_cat = estimate_warp_map(options.imagename)
-        else:
-            warp_cat = options.warp_cat
-        if eval(str(options.do_correction)) == False:
-            print("Ionospheric warp surface: " + warp_cat)
-            gc.collect()
-            return 0
-        else:
-            print(
-                "Ionospheric warp correction using: "
-                + os.path.basename(warp_cat)
-                + "\n"
-            )
-            outfile = correct_warp(
-                options.imagename,
-                warp_cat,
-                ncpu=int(options.ncpu),
-                keep_original=eval(str(options.keep_original)),
-            )
-            header = fits.getheader(outfile)
-            data = fits.getdata(outfile)
-            header["UNWARP"] = "Y"
-            fits.writeto(outfile, data, header, overwrite=True)
-            print("Ionospheric warp corrected image: " + outfile)
-            gc.collect()
-            return 0
-    except Exception as e:
-        traceback.print_exc()
-        gc.collect()
-        return 1
-
-
-if __name__ == "__main__":
-    result = main()
-    os._exit(result)
+        output_image = run_fits_warp(xmfits, imagename, ncpu)
+    os.system("mv " + output_image + " " + outdir)
+    return outdir+'/'+os.path.basename(output_image)

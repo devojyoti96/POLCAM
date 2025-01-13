@@ -19,6 +19,7 @@ def perform_spectrotemporal_imaging(
     robust=0.0,
     pol="IQUV",
     FWHM=True,
+    imsize=None,
     threshold=3,
     niter=100000,
     minuv_l=-1,
@@ -54,10 +55,12 @@ def perform_spectrotemporal_imaging(
         Polarization to image
     FWHM : bool
         Image upto FWHM or first null
+    imsize : int
+        Image size in degree. If it is given, FWHM parameter will be ignored
     threshold : float
         Auto-threshold
     niter: int
-        Number of iterations    
+        Number of iterations
     minuv_l : float
         Minimum uv-range in lambda
     savemodel : bool
@@ -159,12 +162,17 @@ def perform_spectrotemporal_imaging(
     cwd = os.getcwd()
     os.chdir(workdir)
     cellsize = calc_cellsize(msname, 3)
-    imsize = calc_imsize(msname, 3, FWHM=FWHM)
+    if imsize == None and imsize < 32:
+        imsize = calc_imsize(msname, 3, FWHM=FWHM)
+    else:
+        imsize = int(imsize * 3600.0 / cellsize)
+        pow2 = round(np.log2(imsize / 10.0), 0)
+        imsize = int((2**pow2) * 10)
     if weight == "briggs":
         weight += " " + str(robust)
-    if minuv_l < 0:
+    if float(minuv_l) < 0:
         uvrange = get_calibration_uvrange(msname)
-        minuv_l = uvrange.split("~")[0]
+        minuv_l = float(uvrange.split("~")[0])
     wsclean_args = [
         "-scale " + str(cellsize) + "asec",
         "-size " + str(imsize) + " " + str(imsize),
@@ -172,7 +180,7 @@ def perform_spectrotemporal_imaging(
         "-weight " + weight,
         "-name " + prefix,
         "-pol " + str(pol),
-        "-niter "+str(niter),
+        "-niter " + str(niter),
         "-mgain 0.85",
         "-nmiter 5",
         "-gain 0.1",
@@ -188,7 +196,7 @@ def perform_spectrotemporal_imaging(
     if use_multiscale:
         wsclean_args.append("-multiscale")
         wsclean_args.append("-multiscale-gain 0.1")
-    if multiscale_scales != "":    
+    if multiscale_scales != "":
         wsclean_args.append("-multiscale-scales " + multiscale_scales)
     if ncpu > 0:
         wsclean_args.append("-j " + str(ncpu))
@@ -206,8 +214,7 @@ def perform_spectrotemporal_imaging(
     total_chunks = nchan * 4 * 4
     if total_chunks > soft_limit:
         resource.setrlimit(resource.RLIMIT_NOFILE, (total_chunks, hard_limit))
-    os.system(wsclean_cmd)  # + " > tmp_wsclean")
-    os.system("rm -rf tmp_wsclean")
+    os.system(wsclean_cmd + " > " + prefix + "_wsclean.log")
     os.chdir(pwd)
     return 0, workdir, os.path.basename(prefix)
 

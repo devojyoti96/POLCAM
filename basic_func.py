@@ -2,13 +2,68 @@ from casatools import table, msmetadata
 from casatasks import importfits, exportfits, imsubimage
 from astropy.io import fits
 from astropy.table import Table
+import astropy.units as u, os
+from astropy.coordinates import AltAz, EarthLocation, get_sun, SkyCoord, Angle
+from astropy.time import Time
 import numpy as np, os, psutil, time, glob, gc, scipy, copy, math
 from pathlib import Path
+from mwapb import get_pb_radec
 
 os.system("rm -rf casa*log")
+MWALON = 116.67
+MWALAT = -26.7
+MWAALT = 377.8
+
+
+def ra_dec_to_deg(ra_hms, dec_dms):
+    """
+    Convert RA and Dec from hms and dms format to degrees
+    Parameters
+    ----------
+    ra_hms: str
+        Right Ascension in 'hms' format
+    dec_dms : str
+        Declination in 'dms' format
+    Returns
+    -------
+    tuple
+        RA and Dec in degrees
+    """
+    ra = Angle(ra_hms, unit=u.hourangle)
+    dec = Angle(dec_dms, unit=u.deg)
+    return ra.deg, dec.deg
+
+
+def ra_dec_to_hms_dms(ra_deg, dec_deg):
+    """
+    Convert RA and Dec in degrees to hms and dms format
+    Parameters
+    ----------
+    ra_deg : float
+        Right Ascension in degrees.
+    dec_deg : float
+        Declination in degrees.
+    Returns
+    -------
+    tuple
+        RA in h:m:s format, Dec in d:m:s format (e.g., '1h5m0s', '1d5m0s').
+    """
+    # Convert RA to h:m:s
+    if ra_deg < 0:
+        ra_deg += 360
+    ra = Angle(ra_deg, unit=u.deg)
+    ra_hms = ra.to_string(unit=u.hourangle, sep=":").split(":")
+    ra_hms = ra_hms[0] + "h" + ra_hms[1] + "m" + ra_hms[2] + "s"
+    # Convert Dec to d:m:s
+    dec = Angle(dec_deg, unit=u.deg)
+    dec_dms = dec.to_string(unit=u.deg, sep=":", alwayssign=True).split(":")
+    dec_dms = dec_dms[0] + "d" + dec_dms[1] + "m" + dec_dms[2] + "s"
+    return ra_hms, dec_dms
+
 
 def get_directory_size(directory):
-    """Calculate the total size of a directory and its subdirectories.
+    """
+    Calculate the total size of a directory and its subdirectories.
     Parameters
     ----------
     direcotry : str
@@ -16,10 +71,10 @@ def get_directory_size(directory):
     Returns
     -------
     float
-        Directory size in GB   
+        Directory size in GB
     """
-    dir_size = sum(f.stat().st_size for f in Path(directory).rglob('*') if f.is_file())
-    dir_size = dir_size/(1024 ** 3)
+    dir_size = sum(f.stat().st_size for f in Path(directory).rglob("*") if f.is_file())
+    dir_size = dir_size / (1024**3)
     return dir_size
 
 
@@ -65,9 +120,9 @@ def get_chans_flags(msname):
     return chan_flags
 
 
-def MWA_field_of_view(msname, FWHM=True):
+def calc_field_of_view(msname, FWHM=True):
     """
-    Calculate optimum field of view in arcsec
+    Calculate optimum field of view in arcsec using maximum dish/aperture size in the array
     Parameters
     ----------
     msname : str
@@ -80,17 +135,18 @@ def MWA_field_of_view(msname, FWHM=True):
             Field of view in arcsec
     """
     msmd = msmetadata()
+    tb = table()
     msmd.open(msname)
-    freq = msmd.meanfreq(0)
+    freq = np.nanmax(msmd.chanfreqs(0))
+    wavelength = 299792458.0 / (freq)
     msmd.close()
+    tb.open(msname + "/ANTENNA")
+    dia = np.nanmin(tb.getcol("DISH_DIAMETER"))
+    tb.close()
     if FWHM == True:
-        FOV = (
-            np.sqrt(610) * 150 * 10**6 / freq
-        )  # 600 deg^2 is the image FoV at 150MHz for MWA. So extrapolating this to central frequency
+        FOV = np.rad2deg((1.22 * wavelength) / dia)
     else:
-        FOV = (
-            60 * 110 * 10**6 / freq
-        )  # 3600 deg^2 is the image FoV at 110MHz for MWA upto first null. So extrapolating this to central frequency
+        FOV = 2 * np.rad2deg((1.02 * wavelength) / dia)
     return FOV * 3600  ### In arcsecs
 
 
@@ -104,7 +160,7 @@ def calc_psf(msname):
     Returns
     -------
     float
-            PSF size in arcsec
+        PSF size in arcsec
     """
     maxuv_m, maxuv_l = calc_maxuv(msname)
     psf = np.rad2deg(1.22 / maxuv_l) * 3600.0  # In arcsec
@@ -119,18 +175,18 @@ def calc_cellsize(msname, num_pixel_in_psf):
     msname : str
         Name of the measurement set
     num_pixel_in_psf : int
-            Number of pixels in one PSF
+        Number of pixels in one PSF
     Returns
     -------
     int
-            Pixel size in arcsec
+        Pixel size in arcsec
     """
     psf = calc_psf(msname)
-    pixel = math.ceil(psf / num_pixel_in_psf)
+    pixel = math.ceil(psf / num_pixel_in_psf) - 1
     return pixel
 
 
-def calc_imsize(msname, num_pixel_in_psf, FWHM=True):
+def calc_imsize(msname, num_pixel_in_psf, max_num_pix = 8192,  FWHM=True):
     """
     Calculate image pixel size
     Parameters
@@ -138,21 +194,23 @@ def calc_imsize(msname, num_pixel_in_psf, FWHM=True):
     msname : str
         Name of the measurement set
     num_pixel_in_psf : int
-            Number of pixels in one PSF
+        Number of pixels in one PSF
+    max_num_pix : int
+        Maximum number of pixels 
     FWHM : bool
         Image upto FWHM or first null
     Returns
     -------
     int
-            Number of pixels
+        Number of pixels
     """
     cellsize = calc_cellsize(msname, num_pixel_in_psf)
-    fov = MWA_field_of_view(msname, FWHM=FWHM)
+    fov = calc_field_of_view(msname, FWHM=FWHM)
     imsize = int(fov / cellsize)
     pow2 = round(np.log2(imsize / 10.0), 0)
     imsize = int((2**pow2) * 10)
-    if imsize > 8192:
-        imsize = 8192
+    if imsize>max_num_pix:
+        imsize=max_num_pix
     return imsize
 
 
@@ -164,13 +222,13 @@ def calc_multiscale_scales(msname, num_pixel_in_psf, max_scale=16):
     msname : str
         Name of the measurement set
     num_pixel_in_psf : int
-            Number of pixels in one PSF
+        Number of pixels in one PSF
     max_scale : float
         Maximum scale in arcmin
     Returns
     -------
     list
-            Multiscale scales in pixel units
+        Multiscale scales in pixel units
     """
     psf = calc_psf(msname)
     multiscale_scales = [0, num_pixel_in_psf]
@@ -197,7 +255,7 @@ def calc_maxuv(msname):
     """
     msmd = msmetadata()
     msmd.open(msname)
-    freq = msmd.meanfreq(0)
+    freq = np.nanmin(msmd.chanfreqs(0))
     wavelength = 299792458.0 / (freq)
     msmd.close()
     tb = table()
@@ -258,6 +316,32 @@ def get_calibration_uvrange(msname):
     maxuv_l = round(maxuv_m / wavelength, 1)
     uvrange = str(minuv_l) + "~" + str(maxuv_l) + "lambda"
     return uvrange
+
+
+def get_phasecenter(msname):
+    """
+        Get phasecenter of the measurement set
+    Parameters
+    ----------
+    msname : str
+        Measurement set name
+        Returns
+        -------
+        tuple
+                Phasecenter of the measurement set in ['RA','DEC'] in hh mm ss dd mm ss format
+        float
+                RA in degree
+        float
+                DEC in degree
+    """
+    msmd = msmetadata()
+    msmd.open(msname)
+    phasecenter = msmd.phasecenter()
+    msmd.close()
+    radeg = np.rad2deg(phasecenter["m0"]["value"])
+    decdeg = np.rad2deg(phasecenter["m1"]["value"])
+    radec_str = ra_dec_to_hms_dms(radeg, decdeg)
+    return radec_str, radeg, decdeg
 
 
 def create_batch_script_nonhpc(cmd, basedir, basename):
@@ -670,19 +754,6 @@ def cal_field_averaged_polfrac(
     float
         Polarization fraction
     """
-
-    def angular_distance(ra1, dec1, ra_list, dec_list):
-        ra1 = np.radians(ra1)
-        dec1 = np.radians(dec1)
-        ra_list = np.radians(ra_list)
-        dec_list = np.radians(dec_list)
-        cos_theta = np.sin(dec1) * np.sin(dec_list) + np.cos(dec1) * np.cos(
-            dec_list
-        ) * np.cos(ra1 - ra_list)
-        cos_theta = np.clip(cos_theta, -1, 1)
-        angular_dist = np.arccos(cos_theta)
-        return np.degrees(angular_dist)
-
     print(
         "Searching a "
         + str(fov)
@@ -804,3 +875,264 @@ def wait_for_resources(basename, cpu_threshold=20, memory_threshold=20):
             gc.collect()
             time.sleep(1)
         count += 1
+
+
+def radec_to_altaz(ra, dec, obstime, LAT, LON, ALT):
+    """
+    Function to convert radec to altaz for a given Earth location
+    Parameters
+    ----------
+    ra : str
+            RA either in degree or 'hh:mm:ss' or '%fh%fm%fs' format
+    dec : str
+            DEC either in degree or 'dd:mm:ss' or '%fd%fm%fs'format
+    obstime : str
+            Time of the observation in 'yyyy-mm-dd hh:mm:ss' format
+    LAT : float
+            Latitude of the Earth location in degree
+    LON : float
+            Longitude of Earth location in degree
+    ALT : float
+            Altitude of the Earth location in meter
+    Returns
+    -------
+    float
+            Altitude in degree
+    float
+            Azimuth in degree
+    """
+    LOCATION = EarthLocation.from_geodetic(
+        lat=LAT * u.deg, lon=LON * u.deg, height=ALT * u.m
+    )
+    observing_time = Time(obstime)
+    aa = AltAz(location=LOCATION, obstime=observing_time)
+    try:
+        ra = float(ra)
+        dec = float(dec)
+        coord = SkyCoord(ra, dec, frame="icrs", unit="deg")
+    except:
+        try:
+            coord = SkyCoord(ra, dec)
+        except:
+            coord = SkyCoord(ra, dec, unit=(u.hourangle, u.deg))
+    altaz_object = coord.transform_to(aa)
+    alt = altaz_object.alt.degree
+    az = altaz_object.az.degree
+    return alt, az
+
+
+def get_solar_coords(lat=None, lon=None, elev=None, obstime=""):
+    """
+    Get solar coordinates and elevation elevation at geographic location at a time
+    Parameters
+    ----------
+    lat : float
+        Latitude in degree (default: YAMAGAWA latitude)
+    lon : float
+        Longitude in degree (default: YAMAGAWA longitude)
+    elev : float
+        Elevation from mean sea lievel in meter (default: YAMAGAWA elevation)
+    obstime : str
+        Date and time in ISOT format
+    Returns
+    -------
+    str
+        Solar RA in h:m:s format
+    str
+        Solar DEC in d:m:s format
+    float
+        Solar altitude in degree
+    float
+        Solar azimuth in degree
+    """
+    if lat == None:
+        lat = MWALAT
+    if lon == None:
+        lon = MWALON
+    if elev == None:
+        elev = MWAALT
+    latitude = lat * u.deg  # In degree
+    longitude = lon * u.deg  # In degree
+    elevation = elev * u.m  # In meter
+    if obstime == "":
+        time = Time.now()
+    else:
+        time = Time(obstime)
+    location = EarthLocation(lat=latitude, lon=longitude, height=elevation)
+    sun_coords = get_sun(time)
+    altaz_frame = AltAz(obstime=time, location=location)
+    sun_altaz = sun_coords.transform_to(altaz_frame)
+    solar_alt = sun_altaz.alt.deg
+    solar_az = sun_altaz.az.deg
+    sun_ra = sun_coords.ra.to_string(unit="hourangle", sep=":")
+    sun_dec = sun_coords.dec.to_string(unit="deg", sep=":")
+    return sun_ra, sun_dec, solar_alt, solar_az
+
+
+def get_source_brightness(flux, alpha, freq, reffreq=150):
+    """
+    Return the flux density of the source at the specified frequency
+    Parameters
+    ----------
+    flux_150 : float
+        Flux density at 150 MHz
+    alpha : float
+        Spectral index
+    freq : float
+        Frequency in MHz to evaluate the model
+    reffreq : float
+        Reference frequency of the given flux density
+    Returns
+    -------
+    float
+        Flux density
+    """
+    appflux = flux * ((freq / reffreq) ** (alpha))
+    return appflux
+
+
+def get_quiet_sun_flux(freq):
+    """
+    Get quiet Sun flux density in Jy
+    Parameters
+    ----------
+    freq : float
+        Frequency in MHz
+    Returns
+    -------
+    float
+        Flux density in JY
+    """
+    p = np.poly1d([-1.93715165e-06, 7.84627718e-04, -3.15744433e-02, 2.32834400e-01])
+    flux = p(freq) * 10**4  # Polynomial return in SFU
+    return flux
+
+
+def angular_distance(RA_ref, DEC_ref, RA_list, DEC_list):
+    """
+    Calculate angular distances from a reference
+    Parameters
+    -----------
+    RA_ref : float
+        Right Ascension of the reference point in degrees
+    DEC_ref : float
+        Declination of the reference point in degrees
+    RA_list : list or np.ndarray
+        List of Right Ascension values in degrees.
+    DEC_list : list or np.ndarray
+        List of Declination values in degrees.
+    Returns
+    -------
+    list
+        Angular distances in degrees.
+    """
+    ref_coord = SkyCoord(ra=RA_ref * u.deg, dec=DEC_ref * u.deg, frame="icrs")
+    # Define the list of coordinates
+    coord_list = SkyCoord(ra=RA_list * u.deg, dec=DEC_list * u.deg, frame="icrs")
+    # Compute angular distances
+    distances = ref_coord.separation(coord_list)
+    return distances.deg  # Return distances in degrees
+
+
+def get_ateam_sources(
+    msname,
+    metafits,
+    MWA_PB_file,
+    sweet_spot_file,
+    min_beam_threshold=0.001,
+    threshold_flux=0.0,
+):
+    """
+    This function will give the list of A-team sources which are above the horizon
+    Parameters
+    ----------
+    msname : str
+        Name of the measurement name
+    metafits : str
+        Metafits name
+    MWA_PB_file : str
+        MWA primary beam file
+    sweet_spot_file : str
+        MWA sweetspot file
+    min_beam_threshold : float
+        Minimum beam gain
+    threshold_flux : float
+        Threshold flux in Jy
+    Returns
+    -------
+    str
+        List of A-team sources to peel
+    """
+    msmd = msmetadata()
+    msmd.open(msname)
+    freq = msmd.meanfreq(0, unit="MHz")
+    msmd.close()
+    header = fits.getheader(metafits)
+    pointing_RA = header["RA"]
+    pointing_DEC = header["DEC"]
+    obs_time = header["DATE-OBS"]
+    beamsize = calc_field_of_view(msname, FWHM=True) / 7200.0 # HWHM
+    pos = {}
+    source_info = {}
+    pos["CasA"] = ["23h23m24.0s", "+58d48m54.00s", 13000.0, -0.5, 150]
+    pos["HerA"] = ["16h51m08.2s", "+04d59m33s", 520.0, -1.1, 150]
+    pos["HydA"] = ["09h18m05.65s", "-12d05m43.99s", 350.0, -0.9, 150]
+    pos["PicA"] = ["05h19m49.73s", "-45d46m43.70s", 570.0, -1.0, 150]
+    pos["CenA"] = ["13h25m27.6s", "-43d01m09.00s", 1040.0, -0.65, 150]
+    pos["CygA"] = ["19h59m28.35s", "+40d44m02.09s", 9000.0, -1.0, 150]
+    pos["VirA"] = ["12h30m49.42s", "+12d23m28.04s", 1200.0, -1.0, 150]
+    pos["Crab"] = ["05h34m31.94s", "+22d00m52.2s", 1500.0, -0.5, 150]
+    pos["ForA"] = ["03h23m00.0s", "-37d12m00.0s", 605.0, -0.88, 150]
+    pos["3C444"] = ["22h14m25.75s", "-17d01m36.29s", 85.0, -0.9, 150]
+    pos["3C353"] = ["17h20m28.0s", "-00d58m46.0s", 680.0, -0.6, 150]
+    pos["PKS2356-61"] = ["23h59m04.36s", "-60d54m59.41s", 123.8, -0.75, 145]
+    pos["PKS2153-69"] = ["21h57m05.98s", "-69d41m23.68", 131.4, -0.56, 145]
+    pos["PKS0408-65"] = ["04h08m20.0s", "-65d45m08.0s", 5.9, -0.85, 150]
+    pos["PKS0410-75"] = ["04h10m48.0s", "-75d07m19.0s", 5.0, -0.85, 150]
+    pos["3C33"] = ["01h08m52.85s", "+13d20m13.75s", 54.2, -0.33, 150]
+    pos["3C161"] = ["06h27m10.09s", "-05d53m04.76s", 74.9, -0.37, 160]
+    pos["PKS0442-28"] = ["04h44m37.70s", "-28d09m54.41s", 37.0, -0.85, 150]
+    pos["3C409"] = ["20h14m27.6s", "+23d34m53s", 99.0, -0.57, 160]
+    pos["PKS0351-27"] = ["03h51m35.7s", "-27d44m35s", 52.0, -1.09, 80]
+    callist = list(pos.keys())
+    for cal in callist:
+        ra = pos[cal][0]
+        dec = pos[cal][1]
+        flux = pos[cal][2]
+        alpha = pos[cal][3]
+        reffreq = pos[cal][4]
+        alt, az = radec_to_altaz(ra, dec, obs_time, MWALAT, MWALON, MWAALT)
+        if alt > 0:
+            radeg, decdeg = ra_dec_to_deg(ra, dec)
+            distance_from_pointing_center = angular_distance(
+                pointing_RA, pointing_DEC, radeg, decdeg
+            )
+            if distance_from_pointing_center > beamsize:
+                result = get_pb_radec(
+                    radeg,
+                    decdeg,
+                    freq,
+                    metafits,
+                    MWA_PB_file,
+                    sweet_spot_file,
+                    iau_order=False,
+                )
+                beam_I = result[2]
+                appflux = (
+                    get_source_brightness(flux, alpha, freq, reffreq=reffreq) * beam_I
+                )
+                if beam_I > min_beam_threshold and appflux > threshold_flux:
+                    source_info[cal] = [ra, dec, alt, az, appflux]
+    sun_ra, sun_dec, sun_alt, sun_az = get_solar_coords(
+        lat=MWALAT, lon=MWALON, elev=MWAALT, obstime=obs_time
+    )
+    if sun_alt > 0:
+        radeg, decdeg = ra_dec_to_deg(sun_ra, sun_dec)
+        result = get_pb_radec(
+            radeg, decdeg, freq, metafits, MWA_PB_file, sweet_spot_file, iau_order=False
+        )
+        beam_I = result[2]
+        appflux = get_quiet_sun_flux(freq) * beam_I
+        source_info["Sun"] = [sun_ra, sun_dec, sun_alt, sun_az, appflux]
+    print("Total sources", len(source_info))
+    return source_info

@@ -8,7 +8,7 @@ from casatasks import exportfits, importfits
 from optparse import OptionParser
 from scipy.interpolate import RectBivariateSpline
 from joblib import Parallel, delayed
-from basic_func import *
+import astropy.units as u
 
 warnings.filterwarnings("ignore")
 os.system("rm -rf casa*log")
@@ -363,6 +363,119 @@ def get_jones_array(
     return jones_array
 
 
+def get_pb_radec(ra, dec, freq, metafits, MWA_PB_file, sweet_spot_file, iau_order=True):
+    """
+    Function to get MWA primary beam at specific RA, DEC
+    Parameters
+    ----------
+    ra : str
+            RA either in degree or 'hh:mm:ss' or '%fh%fm%fs' format
+    dec : str
+            DEC either in degree or 'dd:mm:ss' or '%fd%fm%fs'format
+    freq : float
+            Frequency in MHz
+    metafits : str
+            MWA metafits file
+    MWA_PB_file : str
+            MWA primary beam file path
+    sweet_spot_file : str
+        Sweetspot file name
+    iau_order : bool
+            Beam Jones in IAU order or not
+    Returns
+    -------
+    int
+            Success message (0 or 1)
+    np.array
+            Jones matrix
+    float
+            Stokes I beam value
+    float
+            XX power beam value
+    float
+            YY power beam value
+    """
+    if MWA_PB_file != "" and os.path.exists(MWA_PB_file):
+        beam = mwa_hyperbeam.FEEBeam(MWA_PB_file)
+    else:
+        print("Provide existing MWA primary beam file.")
+        return 1, np.array([]), None
+    if metafits == None:
+        print("No metafits of observation is provided.")
+        return 1, np.array([]), None
+    else:
+        metadata = fits.getheader(metafits)
+        obstime = metadata["DATE-OBS"]
+        gridpoint = metadata["GRIDNUM"]
+        sweet_spots = np.load(sweet_spot_file, allow_pickle=True).all()
+        delay = sweet_spots[int(gridpoint)][-1]
+    observing_time = Time(obstime)
+    aa = AltAz(location=MWAPOS, obstime=observing_time)
+    try:
+        ra = float(ra)
+        dec = float(dec)
+        coord = SkyCoord(ra, dec, frame="icrs", unit="deg")
+    except:
+        try:
+            coord = SkyCoord(ra, dec)
+        except:
+            coord = SkyCoord(ra, dec, unit=(u.hourangle, u.deg))
+    altaz_object = coord.transform_to(aa)
+    alt = altaz_object.alt.degree
+    az = altaz_object.az.degree
+    if type(ra) == np.ndarray and type(dec) == np.ndarray:
+        jones_array = beam.calc_jones_array(
+            np.deg2rad(az),
+            np.deg2rad(90 - alt),
+            freq * 10**6,
+            delay,
+            [1] * 16,
+            True,
+            np.deg2rad(MWALAT),
+            iau_order,
+        )
+        stokesI_beam = (
+            (np.abs(jones_array[:, 0])) ** 2
+            + (np.abs(jones_array[:, 1])) ** 2
+            + (np.abs(jones_array[:, 2])) ** 2
+            + (np.abs(jones_array[:, 3])) ** 2
+        ) / 2
+        power_beam_array_XX = np.abs(
+            jones_array[:, 0] * jones_array[:, 0].conjugate()
+            + jones_array[:, 1] * jones_array[:, 1].conjugate()
+        )
+        power_beam_array_YY = np.abs(
+            jones_array[:, 2] * jones_array[:, 2].conjugate()
+            + jones_array[:, 3] * jones_array[:, 3].conjugate()
+        )
+    else:
+        jones_array = beam.calc_jones(
+            np.deg2rad(az),
+            np.deg2rad(90 - alt),
+            freq * 10**6,
+            delay,
+            [1] * 16,
+            True,
+            np.deg2rad(MWALAT),
+            iau_order,
+        )
+        stokesI_beam = (
+            (np.abs(jones_array[0])) ** 2
+            + (np.abs(jones_array[1])) ** 2
+            + (np.abs(jones_array[2])) ** 2
+            + (np.abs(jones_array[3])) ** 2
+        ) / 2
+        power_beam_array_XX = np.abs(
+            jones_array[0] * jones_array[0].conjugate()
+            + jones_array[1] * jones_array[1].conjugate()
+        )
+        power_beam_array_YY = np.abs(
+            jones_array[2] * jones_array[2].conjugate()
+            + jones_array[3] * jones_array[3].conjugate()
+        )
+    return 0, jones_array, stokesI_beam, power_beam_array_XX, power_beam_array_YY
+
+
 def mwapb_cor(
     imagename,
     outfile,
@@ -378,7 +491,6 @@ def mwapb_cor(
     gridpoint=-1,
     nthreads=1,
     restore=False,
-    MWA_PB_path="",
     output_stokes="",
 ):
     """
@@ -409,8 +521,6 @@ def mwapb_cor(
             Number of cpu threads use for parallel computing
     restore : bool
             Whether correct for MWA primary beam or restore the correction
-    MWA_PB_path : str
-            MWA primary beam data file path (default : In built datafile from P-AIRCARS)
     output_stokes : str
             Output Stokes planes ('I' or 'IQUV', default : input image stokes)
     Returns
@@ -418,7 +528,11 @@ def mwapb_cor(
     str
             Output image name
     """
-    beam = mwa_hyperbeam.FEEBeam(MWA_PB_file)
+    if MWA_PB_file != "" and os.path.exists(MWA_PB_file):
+        beam = mwa_hyperbeam.FEEBeam(MWA_PB_file)
+    else:
+        print("Provide existing MWA primary beam file.")
+        return None
     outfile = os.path.basename(outfile)
     if imagename[-1] == "/":
         imagename = imagename[:-1]
@@ -636,7 +750,15 @@ def mwapb_cor(
             radeg = image_header["CRVAL1"]
             decdeg = image_header["CRVAL2"]
             msg, phasecenter_jones_array, I_beam, XX_power_beam, YY_power_beam_array = (
-                get_pb_radec(radeg, decdeg, freq / 10**6, metafits=metafits)
+                get_pb_radec(
+                    radeg,
+                    decdeg,
+                    freq / 10**6,
+                    metafits,
+                    MWA_PB_file,
+                    sweet_spot_file,
+                    iau_order=iau_order,
+                )
             )
             phasecenter_jones_array = phasecenter_jones_array[np.newaxis, ...]
             phasecenter_jones_array = np.repeat(
@@ -710,7 +832,15 @@ def mwapb_cor(
                     I_beam,
                     XX_power_beam,
                     YY_power_beam_array,
-                ) = get_pb_radec(radeg, decdeg, freq / 10**6, metafits=metafits)
+                ) = get_pb_radec(
+                    radeg,
+                    decdeg,
+                    freq / 10**6,
+                    metafits,
+                    MWA_PB_file,
+                    sweet_spot_file,
+                    iau_order=iau_order,
+                )
                 phasecenter_jones_array = phasecenter_jones_array[np.newaxis, ...]
                 phasecenter_jones_array = np.repeat(
                     phasecenter_jones_array, jones_array.shape[0], axis=0

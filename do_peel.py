@@ -4,6 +4,7 @@ from casatasks import delmod, uvsub
 import gc, traceback
 from optparse import OptionParser
 
+
 def peel_source(
     msname,
     metafits,
@@ -67,12 +68,16 @@ def peel_source(
         org_ra_deg = float(header["RAPHASE"])
         org_dec_deg = float(header["DECPHASE"])
     except:
-        print ("Phase center information is not present. Hence, choosing pointing center as phase center.")
+        print(
+            "Phase center information is not present. Hence, choosing pointing center as phase center."
+        )
         org_ra_deg = float(header["RA"])
-        org_dec_deg = float(header["DEC"]) 
+        org_dec_deg = float(header["DEC"])
     org_ra, org_dec = ra_dec_to_hms_dms(org_ra_deg, org_dec_deg)
     print("Shifting phase center to the source.")
-    os.system("chgcentre " + msname + " " + ra + " " + dec+" > chgcentre.log 2>/dev/null")
+    os.system(
+        "chgcentre " + msname + " " + ra + " " + dec + " > chgcentre.log 2>/dev/null"
+    )
     os.system("rm -rf chgcentre.log")
     delmod(vis=msname, otf=False, scr=True)
     if source_name.lower() == "sun":
@@ -105,21 +110,38 @@ def peel_source(
         print("Performing UV-subtraction.")
         uvsub(vis=msname, reverse=False)
         print("Shifting phase center to original phasecenter.")
-        os.system("chgcentre " + msname + " " + org_ra + " " + org_dec+" > chgcentre.log 2>/dev/null")
+        os.system(
+            "chgcentre "
+            + msname
+            + " "
+            + org_ra
+            + " "
+            + org_dec
+            + " > chgcentre.log 2>/dev/null"
+        )
         os.system("rm -rf chgcentre.log")
         gc.collect()
         if os.path.exists(imagedir):
-            os.system("rm -rf "+imagedir)
+            os.system("rm -rf " + imagedir)
         return 0
     else:
         print("Error in imaging and peeling.")
         print("Shifting phase center to original phasecenter.")
-        os.system("chgcentre " + msname + " " + org_ra + " " + org_dec+" > chgcentre.log 2>/dev/null")
+        os.system(
+            "chgcentre "
+            + msname
+            + " "
+            + org_ra
+            + " "
+            + org_dec
+            + " > chgcentre.log 2>/dev/null"
+        )
         os.system("rm -rf chgcentre.log")
         gc.collect()
         if os.path.exists(imagedir):
-            os.system("rm -rf "+imagedir)
+            os.system("rm -rf " + imagedir)
         return 1
+
 
 def run_peel(
     msname,
@@ -186,8 +208,8 @@ def run_peel(
     int
         Success message
     """
-    if os.path.exists(msname+'/.peeled') and force_peel==False:
-        print ("Peeling is done on ms: ",msname)
+    if os.path.exists(msname + "/.peeled") and force_peel == False:
+        print("Peeling is done on ms: ", msname)
         return 0
     peel_source_dic = get_ateam_sources(
         msname,
@@ -227,9 +249,10 @@ def run_peel(
             tb.putcol("DATA", cor_data)
             tb.flush()
             tb.close()
-        os.system('touch '+msname+'/.peeled')        
+        os.system("touch " + msname + "/.peeled")
         return 0
-            
+
+
 ################################
 def main():
     usage = "Perform source peeling"
@@ -397,9 +420,7 @@ def main():
     gc.collect()
     return msg
 
+
 if __name__ == "__main__":
     result = main()
     os._exit(result)
-            
-            
-            

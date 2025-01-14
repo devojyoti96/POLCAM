@@ -147,6 +147,7 @@ def perform_all_calibration(
                 + str(do_kcross)
                 + " --caldir "
                 + caldir
+                + " --kcross_freqavg 1.28"
             )
             basename = (
                 "calibrate_" + os.path.basename(ms).split(".ms")[0] + "_bcal_kcross"
@@ -449,7 +450,7 @@ def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent
     mslist = glob.glob(msdir + "/*.ms")
     imagedir_list = []
     metafits_list = []
-    imagedir_size=[]
+    imagedir_size = []
     for ms in mslist:
         ddcal_dir_list = []
         ms_obsid = os.path.basename(ms).split(".ms")[0]
@@ -457,7 +458,13 @@ def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent
         msmd.open(ms)
         total_coarsechan = int(msmd.bandwidths(0) / (1280 * 1000))
         msmd.close()
-        imagedir = glob.glob(image_basedir + "/imagedir_MFS_ch_"+ str(total_coarsechan)+ "_*"+ str(ms_obsid))
+        imagedir = glob.glob(
+            image_basedir
+            + "/imagedir_MFS_ch_"
+            + str(total_coarsechan)
+            + "_*"
+            + str(ms_obsid)
+        )
         if len(imagedir) == 0:
             print(
                 "No suitable image directory with coarse channel: "
@@ -467,24 +474,24 @@ def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent
             )
             imagedir_size.append(0)
         else:
-            imagedir=imagedir[0]
+            imagedir = imagedir[0]
             imagedir_list.append(imagedir)
             metafits_list.append(metafits)
             imagedir_size.append(get_directory_size(imagedir))
-    print (imagedir_size)
-    imagedir_maxsize=np.nanmax(np.array(imagedir_size))
+    print(imagedir_size)
+    imagedir_maxsize = np.nanmax(np.array(imagedir_size))
     ddcal_dirs = {}
     os.system("rm -rf " + basedir + "/.Finished_ddcal*")
     count = 0
     free_jobs = -1
     total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
-    max_jobs = int(total_memory/imagedir_maxsize)
+    max_jobs = int(total_memory / imagedir_maxsize)
     if len(imagedir_list) < max_jobs:
         max_jobs = len(imagedir_list)
     available_cpu = int(psutil.cpu_count() * (100 - psutil.cpu_percent()) / 100.0)
     absmem = total_memory / max_jobs
     ncpu = int(available_cpu / max_jobs)
-    print ("Total number of parallel jobs: ",max_jobs)
+    print("Total number of parallel jobs: ", max_jobs)
     if ncpu < 1:
         ncpu = 1
         max_jobs = ncpu

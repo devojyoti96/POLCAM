@@ -4,14 +4,15 @@ from astropy.io import fits
 import os, gc, traceback, numpy as np
 from correct_pb import *
 from correct_ionosphere_warp import *
-from joblib import Parallel,delayed
+from joblib import Parallel, delayed
+
 
 def correct_leakage_surface(
     imagename,
     q_surface_poly,
     u_surface_poly,
     v_surface_poly,
-    outdir='',
+    outdir="",
 ):
     """
     Correct Stokes I to other Stokes leakages
@@ -32,22 +33,22 @@ def correct_leakage_surface(
     str
         Output imagename
     """
-    if outdir=='':
-        outdir=os.path.dirname(imagename)
-    if os.path.exists(outdir)==False:
-        os.makedirs(outdir) 
+    if outdir == "":
+        outdir = os.path.dirname(imagename)
+    if os.path.exists(outdir) == False:
+        os.makedirs(outdir)
     data = fits.getdata(imagename)
     header = fits.getheader(imagename)
-    if header['CTYPE3']=='FREQ':
-        freq=header['CRVAL3']/10**6
-    elif header['CTYPE4']=='FREQ':
-        freq=header['CTYPE4']/10**6
+    if header["CTYPE3"] == "FREQ":
+        freq = header["CRVAL3"] / 10**6
+    elif header["CTYPE4"] == "FREQ":
+        freq = header["CTYPE4"] / 10**6
     else:
-        print ("No frequency information available in image: ",i)
+        print("No frequency information available in image: ", i)
         return
-    q_surface_data=np.polyval(q_surface_poly, freq)
-    u_surface_data=np.polyval(u_surface_poly, freq)
-    v_surface_data=np.polyval(v_surface_poly, freq)
+    q_surface_data = np.polyval(q_surface_poly, freq)
+    u_surface_data = np.polyval(u_surface_poly, freq)
+    v_surface_data = np.polyval(v_surface_poly, freq)
     if header["CTYPE3"] == "STOKES":
         data[0, 1, ...] = data[0, 1, ...] - (
             q_surface_data[0, 0, ...] * data[0, 0, ...]
@@ -67,18 +68,26 @@ def correct_leakage_surface(
         )
         data[3, 0, ...] = data[3, 0, ...] - (
             q_surface_data[0, 0, ...] * data[0, 0, ...]
-        )    
+        )
     fits.writeto(
-        outdir+'/'+os.path.basename(imagename).split(".fits")[0] + "_leakagecor.fits",
+        outdir
+        + "/"
+        + os.path.basename(imagename).split(".fits")[0]
+        + "_leakagecor.fits",
         data,
         header,
         overwrite=True,
     )
-    print ("Leakage surface correction is done for: ",os.path.basename(imagename))       
-    return outdir+'/'+os.path.basename(imagename).split(".fits")[0] + "_leakagecor.fits"
-  
+    print("Leakage surface correction is done for: ", os.path.basename(imagename))
+    return (
+        outdir
+        + "/"
+        + os.path.basename(imagename).split(".fits")[0]
+        + "_leakagecor.fits"
+    )
 
-def get_polycoeff_leakage_surface(leakage_surfaces=[],poldeg=3):
+
+def get_polycoeff_leakage_surface(leakage_surfaces=[], poldeg=3):
     """
     Get polynomial coefficients of leakage surface across frequency (in MHz)
     Parameters
@@ -92,31 +101,34 @@ def get_polycoeff_leakage_surface(leakage_surfaces=[],poldeg=3):
     numpy.array
         Polynomial coefficient array for each pixels (array shape: poldeg+1 , n_Xpix, n_Ypix)
     """
-    freqs=[]
-    surface_data=[]
+    freqs = []
+    surface_data = []
     for i in leakage_surfaces:
-        data=fits.getdata(i)
+        data = fits.getdata(i)
         surface_data.append(data)
-        header=fits.getheader(i)
-        if header['CTYPE3']=='FREQ':
-            freq=header['CRVAL3']/10**6
-        elif header['CTYPE4']=='FREQ':
-            freq=header['CTYPE4']/10**6
+        header = fits.getheader(i)
+        if header["CTYPE3"] == "FREQ":
+            freq = header["CRVAL3"] / 10**6
+        elif header["CTYPE4"] == "FREQ":
+            freq = header["CTYPE4"] / 10**6
         else:
-            print ("No frequency information available in image: ",i)
+            print("No frequency information available in image: ", i)
             return
         freqs.append(freq)
-    freqs=np.array(freqs)
-    pos=np.argsort(freqs)
-    freqs=freqs[pos]
-    surface_data=np.array(surface_data)
-    surface_data=surface_data[pos]
+    freqs = np.array(freqs)
+    pos = np.argsort(freqs)
+    freqs = freqs[pos]
+    surface_data = np.array(surface_data)
+    surface_data = surface_data[pos]
     reshaped_surface_data = surface_data.reshape(surface_data.shape[0], -1)
     coeffs = np.polyfit(freqs, reshaped_surface_data, deg=poldeg)
-    coeffs=coeffs.reshape(coeffs.shape[0],surface_data.shape[1],surface_data.shape[2])
+    coeffs = coeffs.reshape(
+        coeffs.shape[0], surface_data.shape[1], surface_data.shape[2]
+    )
     return coeffs
-    
-def apply_all_ddcal(imagedir,leakage_dir,warps_dir,metafits,ncpu=-1,mem=-1):
+
+
+def apply_all_ddcal(imagedir, leakage_dir, warps_dir, metafits, ncpu=-1, mem=-1):
     ######################################
     # Primary beam correction
     ######################################
@@ -129,14 +141,20 @@ def apply_all_ddcal(imagedir,leakage_dir,warps_dir,metafits,ncpu=-1,mem=-1):
         interpolate=True,
         ncpu=ncpu,
         mem=mem,
-        )
-    pbcor_images=glob.glob(pbcor_image_dir+'/*pbcor.fits')    
-    q_leakage_surfaces=glob.glob(leakage_dir+'/*q_surface*.fits')
-    u_leakage_surfaces=glob.glob(leakage_dir+'/*u_surface*.fits')
-    v_leakage_surfaces=glob.glob(leakage_dir+'/*v_surface*.fits')
-    q_surface_poly=get_polycoeff_leakage_surface(leakage_surfaces=q_leakage_surfaces,poldeg=3)
-    u_surface_poly=get_polycoeff_leakage_surface(leakage_surfaces=u_leakage_surfaces,poldeg=3)
-    v_surface_poly=get_polycoeff_leakage_surface(leakage_surfaces=v_leakage_surfaces,poldeg=3)
+    )
+    pbcor_images = glob.glob(pbcor_image_dir + "/*pbcor.fits")
+    q_leakage_surfaces = glob.glob(leakage_dir + "/*q_surface*.fits")
+    u_leakage_surfaces = glob.glob(leakage_dir + "/*u_surface*.fits")
+    v_leakage_surfaces = glob.glob(leakage_dir + "/*v_surface*.fits")
+    q_surface_poly = get_polycoeff_leakage_surface(
+        leakage_surfaces=q_leakage_surfaces, poldeg=3
+    )
+    u_surface_poly = get_polycoeff_leakage_surface(
+        leakage_surfaces=u_leakage_surfaces, poldeg=3
+    )
+    v_surface_poly = get_polycoeff_leakage_surface(
+        leakage_surfaces=v_leakage_surfaces, poldeg=3
+    )
     ###########################################
     # Estimating number of parallel jobs
     ###########################################
@@ -159,12 +177,14 @@ def apply_all_ddcal(imagedir,leakage_dir,warps_dir,metafits,ncpu=-1,mem=-1):
     print("#######################")
     print("Correcting residual leakages ....")
     print("#######################")
-    outdir=imagedir + "/images/leakage_cor"
-    if os.path.exists(outdir)==False:
+    outdir = imagedir + "/images/leakage_cor"
+    if os.path.exists(outdir) == False:
         os.makedirs(outdir)
     with Parallel(n_jobs=n_jobs) as parallel:
         final_images = parallel(
-            delayed(correct_leakage_surface)(imagename,q_surface_poly,u_surface_poly,v_surface_poly,outdir=outdir)
+            delayed(correct_leakage_surface)(
+                imagename, q_surface_poly, u_surface_poly, v_surface_poly, outdir=outdir
+            )
             for imagename in pbcor_images
         )
     del parallel
@@ -174,55 +194,15 @@ def apply_all_ddcal(imagedir,leakage_dir,warps_dir,metafits,ncpu=-1,mem=-1):
     print("#######################")
     print("Correcting for ionospheric warps ....")
     print("#######################")
-    outdir=imagedir+'/images/final_images'
-    if os.path.exists(outdir)==False:
+    outdir = imagedir + "/images/final_images"
+    if os.path.exists(outdir) == False:
         os.makedirs(outdir)
-    n_jobs=int(n_jobs/4)
-    if n_jobs<1:
-        n_jobs=1
+    n_jobs = int(n_jobs / 4)
+    if n_jobs < 1:
+        n_jobs = 1
     with Parallel(n_jobs=n_jobs) as parallel:
         final_images = parallel(
-            delayed(correct_warp)(imagename,warps_dir,ncpu=4,outdir=outdir)
+            delayed(correct_warp)(imagename, warps_dir, ncpu=4, outdir=outdir)
             for imagename in final_images
         )
     del parallel
-    
-    
-    
-
-
-
-
-                 
-                    
-    
-        
-        
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-

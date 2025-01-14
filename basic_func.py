@@ -186,7 +186,7 @@ def calc_cellsize(msname, num_pixel_in_psf):
     return pixel
 
 
-def calc_imsize(msname, num_pixel_in_psf, max_num_pix = 8192,  FWHM=True):
+def calc_imsize(msname, num_pixel_in_psf, max_num_pix=8192, FWHM=True):
     """
     Calculate image pixel size
     Parameters
@@ -196,7 +196,7 @@ def calc_imsize(msname, num_pixel_in_psf, max_num_pix = 8192,  FWHM=True):
     num_pixel_in_psf : int
         Number of pixels in one PSF
     max_num_pix : int
-        Maximum number of pixels 
+        Maximum number of pixels
     FWHM : bool
         Image upto FWHM or first null
     Returns
@@ -209,8 +209,8 @@ def calc_imsize(msname, num_pixel_in_psf, max_num_pix = 8192,  FWHM=True):
     imsize = int(fov / cellsize)
     pow2 = round(np.log2(imsize / 10.0), 0)
     imsize = int((2**pow2) * 10)
-    if imsize>max_num_pix:
-        imsize=max_num_pix
+    if imsize > max_num_pix:
+        imsize = max_num_pix
     return imsize
 
 
@@ -1071,7 +1071,7 @@ def get_ateam_sources(
     pointing_RA = header["RA"]
     pointing_DEC = header["DEC"]
     obs_time = header["DATE-OBS"]
-    beamsize = calc_field_of_view(msname, FWHM=True) / 7200.0 # HWHM
+    beamsize = calc_field_of_view(msname, FWHM=True) / 7200.0  # HWHM
     pos = {}
     source_info = {}
     pos["CasA"] = ["23h23m24.0s", "+58d48m54.00s", 13000.0, -0.5, 150]

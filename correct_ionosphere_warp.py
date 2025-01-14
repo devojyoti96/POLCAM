@@ -135,7 +135,18 @@ def estimate_warp_map(imagename, outdir="", ncpu=-1, allsky_cat="GGSM.fits"):
         outdir = os.path.dirname(imagename) + "/warps"
     if os.path.isdir(outdir) == False:
         os.makedirs(outdir)
-    os.system("mv " + bkg_image + " " + rms_image + " " + xm_fits + " " + xm_plots + " " + outdir)
+    os.system(
+        "mv "
+        + bkg_image
+        + " "
+        + rms_image
+        + " "
+        + xm_fits
+        + " "
+        + xm_plots
+        + " "
+        + outdir
+    )
     bkg_image = outdir + "/" + os.path.basename(bkg_image)
     rms_image = outdir + "/" + os.path.basename(rms_image)
     xm_fits = outdir + "/" + os.path.basename(xm_fits)
@@ -144,7 +155,7 @@ def estimate_warp_map(imagename, outdir="", ncpu=-1, allsky_cat="GGSM.fits"):
     return bkg_image, rms_image, xm_fits
 
 
-def correct_warp(imagename, xmfits_dir, ncpu=-1, outdir=''):
+def correct_warp(imagename, xmfits_dir, ncpu=-1, outdir=""):
     """
     Parameters
     ----------
@@ -161,15 +172,17 @@ def correct_warp(imagename, xmfits_dir, ncpu=-1, outdir=''):
     str
         Unwraped fits image
     """
-    if outdir=='':
-        outdir=os.path.dirname(imagename)
-    if os.path.exists(outdir)==False:
-        os.makedirs(outdir)  
-    xmfits_list=glob.glob(xmfits_dir+'/*xm.fits')
-    xmfits_coarse_chs=np.array([os.path.basename(xm).split('-coch-')[-1].split('-')[0] for xm in xmfits_list]).astype('int')
-    image_coarse_ch=int(os.path.basename(imagename).split('-coch-')[-1].split('-')[0])
-    pos=np.where(xmfits_coarse_chs==image_coarse_ch)[0][0]
-    xmfits=xmfits_list[pos]
+    if outdir == "":
+        outdir = os.path.dirname(imagename)
+    if os.path.exists(outdir) == False:
+        os.makedirs(outdir)
+    xmfits_list = glob.glob(xmfits_dir + "/*xm.fits")
+    xmfits_coarse_chs = np.array(
+        [os.path.basename(xm).split("-coch-")[-1].split("-")[0] for xm in xmfits_list]
+    ).astype("int")
+    image_coarse_ch = int(os.path.basename(imagename).split("-coch-")[-1].split("-")[0])
+    pos = np.where(xmfits_coarse_chs == image_coarse_ch)[0][0]
+    xmfits = xmfits_list[pos]
     if ncpu < 0:
         ncpu = int(psutil.cpu_cpunt() * (100 - psutil.cpu_percent()) / 100.0)
 
@@ -293,9 +306,9 @@ def correct_warp(imagename, xmfits_dir, ncpu=-1, outdir=''):
             image_prefix + "_unwarped.fits",
             imagetype="fits",
             keep_wsclean_images=False,
-        )  
+        )
     else:
         print("########################\n")
         output_image = run_fits_warp(xmfits, imagename, ncpu)
     os.system("mv " + output_image + " " + outdir)
-    return outdir+'/'+os.path.basename(output_image)
+    return outdir + "/" + os.path.basename(output_image)

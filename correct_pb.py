@@ -107,9 +107,9 @@ def correctpb_spectral_images(imagedir, metafits, interpolate=True, ncpu=-1, mem
                     pb_coch.append(coch)
                     cmd += " --save_pb " + imagedir + "/pbs/pbfile_" + coch
                     cmd_list_1.append(cmd)
-    if len(cmd_list_1)== 0 and len(cmd_list_2) == 0:
-         print ("No images to correct. PB correction is already done.")    
-    else:     
+    if len(cmd_list_1) == 0 and len(cmd_list_2) == 0:
+        print("No images to correct. PB correction is already done.")
+    else:
         print("Maximum numbers of parallel jobs: " + str(n_jobs) + "\n")
         if len(cmd_list_1) > 0:
             with Parallel(n_jobs=n_jobs, backend="multiprocessing") as parallel:
@@ -120,8 +120,8 @@ def correctpb_spectral_images(imagedir, metafits, interpolate=True, ncpu=-1, mem
                 msgs = parallel(delayed(run_cmd)(cmd) for cmd in cmd_list_2)
             del parallel
         total_images = len(glob.glob(imagedir + "/*pbcor.fits"))
-        if total_images>0:
-            os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")   
+        if total_images > 0:
+            os.system("mv " + imagedir + "/*pbcor.fits " + imagedir + "/pbcor_images/")
         print("Total time taken : " + str(round(time.time() - s, 2)) + "s.\n")
     total_images = len(glob.glob(imagedir + "/pbcor_images/*"))
     gc.collect()

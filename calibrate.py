@@ -14,7 +14,7 @@ def do_flag_cal(
     caldir,
     uvrange="",
     do_kcross=True,
-    kcross_freqavg=1.28,
+    kcross_freqavg=-1,
     bandtype="B",
     polyorder=3,
     do_flag=True,

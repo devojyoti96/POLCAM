@@ -266,53 +266,6 @@ def crossphasecal(
     create_corssphase_table(msname, caltable, freqs, crossphase, chan_flags)
     return caltable
     
-def apply_crossphasecal(
-    msname, gaintable="", datacolumn="DATA"):
-    """
-    Apply crosshand phase on the data
-    Parameters
-    ----------
-    msname : str
-        Name of the measurement set
-    gaintable : str
-        Crosshand phase gaintable
-    datacolumn : str
-        Data column to read and modify the same data column
-    """
-    ncpu=int(psutil.cpu_count()*0.8)
-    if ncpu<1:
-        ncpu=1 
-    ne.set_num_threads(ncpu)
-    if gaintable == "":
-        print("Please provide gain table name.\n")
-        return
-    freqs, crossphase, chan_flags = np.load(gaintable, allow_pickle=True)
-    freqs = freqs.astype("float32")
-    crossphase = -crossphase.astype("float32")
-    crossphase = np.deg2rad(crossphase)
-    pos = np.where(chan_flags == False)
-    f = interp1d(freqs[pos], crossphase[pos], kind="linear", fill_value="extrapolate")
-    with SuppressOutput():
-        tb1=table(msname + "/SPECTRAL_WINDOW")
-        ms_freq = tb1.getcol("CHAN_FREQ").flatten()
-        tb1.close()
-        del tb1
-    crossphase = f(ms_freq)
-    with SuppressOutput():
-        tb = table(msname, readonly=False)
-        data = tb.getcol('CORRECTED_DATA')
-        crossphase = np.repeat(crossphase[np.newaxis,...], data.shape[0], axis=0)
-        xy_data = copy.deepcopy(data[...,1])
-        yx_data = copy.deepcopy(data[...,2])
-        xy_data_cor = ne.evaluate("exp(1j * crossphase) * xy_data")
-        yx_data_cor = ne.evaluate("exp(-1j * crossphase) * yx_data")
-        data[...,1] = xy_data_cor
-        data[...,2] = yx_data_cor
-        tb.putcol('CORRECTED_DATA', data)
-        tb.flush()
-        tb.close()
-        del tb
-    return    
     
     
     

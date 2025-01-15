@@ -48,28 +48,36 @@ def get_chans_flags(msname):
 
 def create_corssphase_table(msname, caltable, freqs, crossphase, flags):
     with SuppressOutput():
+        nchan=len(freqs)
         freqres = freqs[1] - freqs[0]
+        tb=table(msname)
+        mean_time=np.nanmean(tb.getcol('TIME'))
+        tb.close()
+        del tb
         tb = table(caltable + "/SPECTRAL_WINDOW", readonly=False)
         freqs = np.array(freqs)[np.newaxis, :]
+        freqres_array=np.repeat(np.array([[freqres]]),nchan,axis=1)
         tb.putcol("CHAN_FREQ", freqs)
-        tb.putcol("NUM_CHAN", len(freqs))
+        tb.putcol("NUM_CHAN", nchan)
         tb.putcol("REF_FREQUENCY", np.nanmean(freqs))
-        tb.putcol("CHAN_WIDTH", np.array([freqres] * len(freqs))[np.newaxis, :])
-        tb.putcol("EFFECTIVE_BW", np.array([freqres] * len(freqs))[np.newaxis, :])
-        tb.putcol("RESOLUTION", np.array([freqres] * len(freqs))[np.newaxis, :])
+        tb.putcol("CHAN_WIDTH",freqres_array )
+        tb.putcol("EFFECTIVE_BW", freqres_array)
+        tb.putcol("RESOLUTION", freqres_array)
         tb.close()
         tb = table(caltable, readonly=False)
         ant = tb.getcol("ANTENNA1")
         gain = tb.getcol("CPARAM")
-        cross_phase_gain = np.repeat(
+        cross_phase_gain_X = np.repeat(
             np.exp(1j * np.deg2rad(crossphase))[np.newaxis, :], len(ant), axis=0
         )
-        gain[..., 0] = cross_phase_gain
-        gain[..., 1] = cross_phase_gain * 0 + 1
+        gain[..., 0] = cross_phase_gain_X
+        gain[..., 1] = cross_phase_gain_X*0+1
         tb.putcol("CPARAM", gain)
+        times=np.array([mean_time]*len(ant))
         flags = flags[np.newaxis, :, np.newaxis]
         flags = np.repeat(np.repeat(flags, len(ant), axis=0), 2, axis=2)
         tb.putcol("FLAG", flags)
+        tb.putcol('TIME',times)
         tb.close()
     return caltable
 
@@ -257,3 +265,54 @@ def crossphasecal(
     )
     create_corssphase_table(msname, caltable, freqs, crossphase, chan_flags)
     return caltable
+    
+def apply_crossphasecal(
+    msname, gaintable="", datacolumn="DATA"):
+    """
+    Apply crosshand phase on the data
+    Parameters
+    ----------
+    msname : str
+        Name of the measurement set
+    gaintable : str
+        Crosshand phase gaintable
+    datacolumn : str
+        Data column to read and modify the same data column
+    """
+    ncpu=int(psutil.cpu_count()*0.8)
+    if ncpu<1:
+        ncpu=1 
+    ne.set_num_threads(ncpu)
+    if gaintable == "":
+        print("Please provide gain table name.\n")
+        return
+    freqs, crossphase, chan_flags = np.load(gaintable, allow_pickle=True)
+    freqs = freqs.astype("float32")
+    crossphase = -crossphase.astype("float32")
+    crossphase = np.deg2rad(crossphase)
+    pos = np.where(chan_flags == False)
+    f = interp1d(freqs[pos], crossphase[pos], kind="linear", fill_value="extrapolate")
+    with SuppressOutput():
+        tb1=table(msname + "/SPECTRAL_WINDOW")
+        ms_freq = tb1.getcol("CHAN_FREQ").flatten()
+        tb1.close()
+        del tb1
+    crossphase = f(ms_freq)
+    with SuppressOutput():
+        tb = table(msname, readonly=False)
+        data = tb.getcol('CORRECTED_DATA')
+        crossphase = np.repeat(crossphase[np.newaxis,...], data.shape[0], axis=0)
+        xy_data = copy.deepcopy(data[...,1])
+        yx_data = copy.deepcopy(data[...,2])
+        xy_data_cor = ne.evaluate("exp(1j * crossphase) * xy_data")
+        yx_data_cor = ne.evaluate("exp(-1j * crossphase) * yx_data")
+        data[...,1] = xy_data_cor
+        data[...,2] = yx_data_cor
+        tb.putcol('CORRECTED_DATA', data)
+        tb.flush()
+        tb.close()
+        del tb
+    return    
+    
+    
+    

@@ -7,9 +7,9 @@ os.system("rm -rf casa*log")
 beamfile = os.getcwd() + "/mwa_full_embedded_element_pattern.h5"
 source_model_file = os.getcwd() + "/GGSM.txt"
 source_model_fits = os.getcwd() + "/GGSM.fits"
+gridfile = os.getcwd() + "/MWA_sweet_spots.npy"
 
-
-def perform_model_import(msdir, basedir, cpu_percent=10, mem_percent=20):
+def perform_model_import(msdir, basedir, cpu_percent=10, mem_percent=10):
     """
     Perform model import in all ms
     Parameters
@@ -33,9 +33,9 @@ def perform_model_import(msdir, basedir, cpu_percent=10, mem_percent=20):
         mslist = glob.glob(msdir + "/*.ms")
         trial_ms = mslist[0]
         mssize = get_column_size(trial_ms, "DATA")  # In GB
-        total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
+        total_memory = (psutil.virtual_memory().total / (1024**3))* (1-(mem_percent/100.0))  # In GB
         max_jobs = int(total_memory / mssize)
-        total_cpus = psutil.cpu_count()
+        total_cpus = psutil.cpu_count()*(1-(cpu_percent/100.0))
         ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
@@ -97,7 +97,7 @@ def perform_model_import(msdir, basedir, cpu_percent=10, mem_percent=20):
 
 
 def perform_all_calibration(
-    msdir, basedir, refant=1, do_kcross=True, cpu_percent=10, mem_percent=20
+    msdir, basedir, refant=1, do_kcross=True, cpu_percent=10, mem_percent=10
 ):
     """
     Perform bandpass and crosshand phase calibration for all ms
@@ -127,9 +127,9 @@ def perform_all_calibration(
         caldir = basedir + "/caldir"
         trial_ms = mslist[0]
         mssize = get_column_size(trial_ms, "DATA")  # In GB
-        total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
+        total_memory = (psutil.virtual_memory().total / (1024**3))* (1-(mem_percent/100.0))  # In GB
         max_jobs = int(total_memory / mssize)
-        total_cpus = psutil.cpu_count()
+        total_cpus = psutil.cpu_count()*(1-(cpu_percent/100.0))
         ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
@@ -186,7 +186,7 @@ def perform_all_calibration(
 
 
 def perform_all_applycal(
-    msdir, bcaldir, kcrossdir, basedir, do_flag=True, cpu_percent=10, mem_percent=20
+    msdir, bcaldir, kcrossdir, basedir, do_flag=True, cpu_percent=10, mem_percent=10
 ):
     """
     Apply calibration solutions of all target ms
@@ -212,6 +212,7 @@ def perform_all_applycal(
         Success message (0 or 1)
     """
     print("Apply calibration solution jobs are being started ....\n")
+    cordir=basedir+'/calibrated'
     try:
         os.system("rm -rf " + basedir + "/.Finished_applycal*")
         mslist = glob.glob(msdir + "/*.ms")
@@ -219,9 +220,9 @@ def perform_all_applycal(
         kcross_tables = glob.glob(kcrossdir + "/*.kcross")
         trial_ms = mslist[0]
         mssize = get_column_size(trial_ms, "DATA")  # In GB
-        total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
+        total_memory = (psutil.virtual_memory().total / (1024**3))* (1-(mem_percent/100.0))  # In GB
         max_jobs = int(total_memory / (2 * mssize))
-        total_cpus = psutil.cpu_count()
+        total_cpus = psutil.cpu_count()*(1-(cpu_percent/100.0))
         ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
@@ -278,6 +279,8 @@ def perform_all_applycal(
                 cmd = (
                     "python3 apply_solutions.py --msname "
                     + ms
+                    + " --basedir "
+                    + cordir
                     + " --do_flag "
                     + str(do_flag)
                 )
@@ -321,6 +324,242 @@ def perform_all_applycal(
         return 1
 
 
+def perform_all_peeling(msdir, basedir, MWA_PB_file='', sweet_spot_file ='', keep_peeled= False, cpu_percent=10, mem_percent=10):
+    """
+    Perform off-lobe bright source peeling on all ms
+    Parameters
+    ----------
+    msdir : str
+        Name of the target ms directory
+    basedir : str
+        Base directory
+    MWA_PB_file : str
+        MWA primary beam file name
+    sweet_spot_file : str
+        MWA sweetspot file name
+    keep_peeled : bool
+        Keep peeled source images or not
+    cpu_percent : float
+        Free CPU percentage
+    mem_percent : float
+        Free memory percentage
+    Returns
+    -------
+    int
+        Success message (0 or 1)
+    """
+    peeldir=basedir+'/peeling'
+    if os.path.exists(peeldir)==False:
+        os.makedirs(peeldir)
+    print("Peeling jobs for subtracting bright sources have been started ....\n")
+    if MWA_PB_file=='' or os.path.exists(MWA_PB_file)==False:
+        MWA_PB_file=beamfile
+    if sweet_spot_file=='' or os.path.file(sweet_spot_file)==False:
+        sweet_spot_file=gridfile    
+    try:
+        os.system("rm -rf " + basedir + "/.Finished_peel*")
+        mslist = glob.glob(msdir + "/*.ms")
+        trial_ms = mslist[0]
+        mssize = get_column_size(trial_ms, "DATA")  # In GB
+        per_job_memory = 2 * mssize
+        total_memory = (psutil.virtual_memory().total / (1024**3))* (1-(mem_percent/100.0))  # In GB
+        max_jobs = int(total_memory / per_job_memory)
+        total_cpus = psutil.cpu_count()*(1-(cpu_percent/100.0))
+        ncpu = int(total_cpus / max_jobs)
+        if ncpu < 1:
+            ncpu = 1
+            max_jobs = total_cpus
+        print("Maximum numbers of jobs to spawn at once:", max_jobs)
+        count = 0
+        free_jobs = -1
+        for ms in mslist:
+            ms_obsid = os.path.basename(ms).split(".ms")[0]
+            metafits = msdir + "/" + ms_obsid + ".metafits"
+            cmd = (
+                "python3 do_peel.py --msname "
+                + ms
+                + " --metafits "
+                + metafits
+                + " --basedir "
+                + peeldir
+                + " --MWA_PB_file "
+                + MWA_PB_file
+                + " --sweet_spot_file "
+                + sweet_spot_file
+                + " --ncpu "
+                + str(ncpu)
+                + " --absmem "
+                + str(per_job_memory)
+                +" --keep_peeled "
+                + str(keep_peeled)
+                +" --modify_datacolumn True"
+            )
+            basename = (
+                "peel_" + os.path.basename(ms).split(".ms")[0]+'_sources' 
+            )
+            batch_file = create_batch_script_nonhpc(cmd, basedir, basename)
+            available_cpu,available_mem=get_free_cpu_and_mem()
+            waiting_count=0
+            while True:
+                if ncpu<available_cpu and per_job_memory<available_mem:
+                    os.system("bash " + batch_file)
+                    print("Spawned command: " + cmd + "\n")
+                    break
+                else:
+                    if waiting_count==0:
+                        print ("Waiting for resources ...")
+                    time.sleep(1)
+                    waiting_count+=1
+            count += 1
+            if free_jobs > 0:
+                free_jobs -= 1
+            if count >= max_jobs or free_jobs == 0:
+                free_jobs = wait_for_resources(
+                    basedir + "/.Running_peel",
+                    cpu_threshold=cpu_percent,
+                    memory_threshold=mem_percent,
+                )
+                if free_jobs == -1:
+                    free_jobs = max_jobs
+                print("Freed jobs: ", free_jobs)
+        while True:
+            finished_files = glob.glob(basedir + "/.Finished_peel*")
+            if len(finished_files) >= count:
+                break
+        print(
+            "#####################\nPeeling of bright sources are finished successfully.\n#####################\n"
+        )
+        gc.collect()
+        return 0
+    except Exception as e:
+        traceback.print_exc()
+        gc.collect()
+        print(
+            "#####################\nPeeling of bright sources are finished unsuccessfully.\n#####################\n"
+        )
+        return 1
+
+def perform_all_selfcal(msdir, basedir, max_iter=5, solint = "inf", gaintype ='T', applymode= "calonly", use_multiscale=False, multiscale_scales="", cpu_percent=10, mem_percent=10):
+    """
+    Perform off-lobe bright source peeling on all ms
+    Parameters
+    ----------
+    msdir : str
+        Name of the target ms directory
+    basedir : str
+        Base directory
+    max_iter : int
+        Maximum numbers of self-calibration iterations
+    solint : str
+        Solution interval 
+    gaintype : str
+        Gain type (G or T)
+    applymode : str
+        Calibration application mode
+    use_multiscale : bool
+        Use multiscale cleaning
+    multiscale_scales : str
+        Multiscale scales 
+    cpu_percent : float
+        Free CPU percentage
+    mem_percent : float
+        Free memory percentage
+    Returns
+    -------
+    int
+        Success message (0 or 1)
+    """
+    selfcaldir=basedir+'/selfcal'
+    if os.path.exists(selfcaldir)==False:
+        os.makedirs(selfcaldir)
+    print("Self-calibration jobs have been started ....\n")  
+    try:
+        os.system("rm -rf " + basedir + "/.Finished_selfcal*")
+        mslist = glob.glob(msdir + "/*.ms")
+        trial_ms = mslist[0]
+        mssize = get_column_size(trial_ms, "DATA")  # In GB
+        per_job_memory = 2 * mssize
+        total_memory = (psutil.virtual_memory().total / (1024**3))* (1-(mem_percent/100.0))  # In GB
+        max_jobs = int(total_memory / per_job_memory)
+        total_cpus = psutil.cpu_count()*(1-(cpu_percent/100.0))
+        ncpu = int(total_cpus / max_jobs)
+        if ncpu < 1:
+            ncpu = 1
+            max_jobs = total_cpus
+        print("Maximum numbers of jobs to spawn at once:", max_jobs)
+        count = 0
+        free_jobs = -1
+        for ms in mslist:
+            ms_obsid = os.path.basename(ms).split(".ms")[0]
+            metafits = msdir + "/" + ms_obsid + ".metafits"
+            cmd = (
+                "python3 do_selfcal.py --msname "
+                + ms
+                + " --basedir "
+                + selfcaldir
+                + " --solint "
+                + str(solint)
+                + " --max_iter "
+                + str(max_iter)
+                + " --applymode "
+                + str(applymode)
+                + " --gaintype "
+                + str(gaintype)
+                + " --ncpu "
+                + str(ncpu)
+                + " --absmem "
+                + str(per_job_memory)
+                + " --use_multiscale " 
+                + str(use_multiscale)
+                + " --multiscale_scales "
+                +str(multiscale_scales)
+                +" --modify_datacolumn True"
+            )
+            basename = (
+                "selfcal_" + os.path.basename(ms).split(".ms")[0]+'_obs' 
+            )
+            batch_file = create_batch_script_nonhpc(cmd, basedir, basename)
+            available_cpu,available_mem=get_free_cpu_and_mem()
+            waiting_count=0
+            while True:
+                if ncpu<available_cpu and per_job_memory<available_mem:
+                    os.system("bash " + batch_file)
+                    print("Spawned command: " + cmd + "\n")
+                    break
+                else:
+                    if waiting_count==0:
+                        print ("Waiting for resources ...")
+                    time.sleep(1)
+                    waiting_count+=1
+            count += 1
+            if free_jobs > 0:
+                free_jobs -= 1
+            if count >= max_jobs or free_jobs == 0:
+                free_jobs = wait_for_resources(
+                    basedir + "/.Running_selfcal",
+                    cpu_threshold=cpu_percent,
+                    memory_threshold=mem_percent,
+                )
+                if free_jobs == -1:
+                    free_jobs = max_jobs
+                print("Freed jobs: ", free_jobs)
+        while True:
+            finished_files = glob.glob(basedir + "/.Finished_selfcal*")
+            if len(finished_files) >= count:
+                break
+        print(
+            "#####################\nPeeling of bright sources are finished successfully.\n#####################\n"
+        )
+        gc.collect()
+        return 0
+    except Exception as e:
+        traceback.print_exc()
+        gc.collect()
+        print(
+            "#####################\nPeeling of bright sources are finished unsuccessfully.\n#####################\n"
+        )
+        return 1
+
 def perform_all_spectral_imaging(
     msdir,
     basedir,
@@ -334,7 +573,7 @@ def perform_all_spectral_imaging(
     FWHM=True,
     minuv_l=-1,
     cpu_percent=10,
-    mem_percent=20,
+    mem_percent=10,
 ):
     print("Imaging jobs are started ....\n")
     try:
@@ -342,16 +581,14 @@ def perform_all_spectral_imaging(
         mslist = glob.glob(msdir + "/*.ms")
         trial_ms = mslist[0]
         mssize = get_column_size(trial_ms, "DATA")  # In GB
-        total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
-        count = 0
-        free_jobs = -1
-        max_jobs = int(total_memory / (2 * mssize))
-        absmem = total_memory / max_jobs
-        available_cpu = int(psutil.cpu_count() * (100 - psutil.cpu_percent()) / 100.0)
-        ncpu = int(available_cpu / max_jobs)
+        per_job_memory = 2 * mssize
+        total_memory = (psutil.virtual_memory().total / (1024**3))* (1-(mem_percent/100.0))  # In GB
+        max_jobs = int(total_memory / per_job_memory)
+        total_cpus = psutil.cpu_count()*(1-(cpu_percent/100.0))
+        ncpu = int(total_cpus / max_jobs)
         if ncpu < 1:
             ncpu = 1
-            max_jobs = ncpu
+            max_jobs = total_cpus
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         scales = ",".join([str(i) for i in multiscale_scales])
         for ms in mslist:
@@ -394,8 +631,18 @@ def perform_all_spectral_imaging(
                 + str(nchan)
             )
             batch_file = create_batch_script_nonhpc(cmd, basedir, basename)
-            os.system("bash " + batch_file)
-            print("Spawned command: " + cmd + "\n")
+            available_cpu,available_mem=get_free_cpu_and_mem()
+            waiting_count=0
+            while True:
+                if ncpu<available_cpu and per_job_memory<available_mem:
+                    os.system("bash " + batch_file)
+                    print("Spawned command: " + cmd + "\n")
+                    break
+                else:
+                    if waiting_count==0:
+                        print ("Waiting for resources ...")
+                    time.sleep(1)
+                    waiting_count+=1
             count += 1
             if free_jobs > 0:
                 free_jobs -= 1
@@ -426,7 +673,7 @@ def perform_all_spectral_imaging(
         return 1
 
 
-def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent=20):
+def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent=10):
     """
     Estimate all direction dependent calibration in image plane
     Parameters
@@ -484,7 +731,7 @@ def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent
     os.system("rm -rf " + basedir + "/.Finished_ddcal*")
     count = 0
     free_jobs = -1
-    total_memory = psutil.virtual_memory().available / (1024**3)  # In GB
+    total_memory = (psutil.virtual_memory().total / (1024**3))* (1-(mem_percent/100.0))  # In GB
     max_jobs = int(total_memory / imagedir_maxsize)
     if len(imagedir_list) < max_jobs:
         max_jobs = len(imagedir_list)
@@ -524,8 +771,18 @@ def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent
                 )
                 basename = "ddcal_" + os.path.basename(imagedir)
                 batch_file = create_batch_script_nonhpc(cmd, basedir, basename)
-                os.system("bash " + batch_file)
-                print("Spawned command: " + cmd + "\n")
+                available_cpu,available_mem=get_free_cpu_and_mem()
+                waiting_count=0
+                while True:
+                    if ncpu<available_cpu and per_job_memory<available_mem:
+                        os.system("bash " + batch_file)
+                        print("Spawned command: " + cmd + "\n")
+                        break
+                    else:
+                        if waiting_count==0:
+                            print ("Waiting for resources ...")
+                        time.sleep(1)
+                        waiting_count+=1
                 count += 1
                 if free_jobs > 0:
                     free_jobs -= 1

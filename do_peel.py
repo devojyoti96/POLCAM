@@ -8,7 +8,7 @@ from optparse import OptionParser
 def peel_source(
     msname,
     metafits,
-    basedir,
+    peeldir,
     source_name,
     ra,
     dec,
@@ -21,6 +21,7 @@ def peel_source(
     minuv_l=-1,
     ncpu=-1,
     mem=-1,
+    keep_peeled = False
 ):
     """
     Peel a single source
@@ -30,8 +31,8 @@ def peel_source(
         Name of the measurement set
     metafits : str
         Name of the metafits file
-    basedir : str
-        Base directory
+    peeldir : str
+        Base directory of peeling
     source_name : str
         Source name to be peeled
     ra : str
@@ -61,6 +62,8 @@ def peel_source(
     int
         Success message
     """
+    if os.path.exists(peeldir + "/peel_" + source_name)==False:
+        os.makedirs(peeldir + "/peel_" + source_name)
     print("############################")
     print("Peeling source: ", source_name)
     header = fits.getheader(metafits)
@@ -92,7 +95,7 @@ def peel_source(
         msname,
         freqres=1280,
         ntime=1,
-        imagedir=basedir + "/peel_" + source_name,
+        imagedir=peeldir + "/peel_" + source_name,
         use_multiscale=use_multiscale,
         multiscale_scales=multiscale_scales,
         weight=weight,
@@ -121,8 +124,6 @@ def peel_source(
         )
         os.system("rm -rf chgcentre.log")
         gc.collect()
-        if os.path.exists(imagedir):
-            os.system("rm -rf " + imagedir)
         return 0
     else:
         print("Error in imaging and peeling.")
@@ -138,8 +139,6 @@ def peel_source(
         )
         os.system("rm -rf chgcentre.log")
         gc.collect()
-        if os.path.exists(imagedir):
-            os.system("rm -rf " + imagedir)
         return 1
 
 
@@ -150,7 +149,7 @@ def run_peel(
     MWA_PB_file,
     sweet_spot_file,
     min_beamgain=0.001,
-    threshold_flux=0.0,
+    threshold_flux=0.1,
     use_multiscale=True,
     multiscale_scales="",
     weight="briggs",
@@ -162,6 +161,7 @@ def run_peel(
     ncpu=-1,
     mem=-1,
     force_peel=False,
+    keep_peeled = False,
 ):
     """
     Peel all a-team sources and Sun in the measurement set
@@ -180,7 +180,7 @@ def run_peel(
     min_beamgain : float
         Minimum beam gain at the source to be considered for peeling
     threshold_flux : float
-        Apprent flux density threshold for the source to be considered for peeling
+        Apprent flux density threshold for the source to be considered for peeling in Jy
     use_multiscale : bool
         Use multiscale cleaning or not
     multiscale_scales : str
@@ -203,54 +203,95 @@ def run_peel(
         Amount of memory in GB to be used
     force_peel : bool
         Force peeling even it is aleady peeled
+    keep_peeled : bool
+        Keep peeled source images or not
     Returns
     -------
     int
         Success message
+    str
+        Peeled measurement set name
     """
-    if os.path.exists(msname + "/.peeled") and force_peel == False:
-        print("Peeling is done on ms: ", msname)
-        return 0
-    peel_source_dic = get_ateam_sources(
-        msname,
-        metafits,
-        MWA_PB_file,
-        sweet_spot_file,
-        min_beam_threshold=min_beamgain,
-        threshold_flux=threshold_flux,
-    )
-    if len(peel_source_dic) == 0:
-        print("No source to peel.")
-        return 0
-    else:
-        source_names = list(peel_source_dic.keys())
-        for source in source_names:
-            source_ra, source_dec, alt, az, appflux = peel_source_dic[source]
-            peel_source(
-                msname,
-                metafits,
-                basedir,
-                source,
-                source_ra,
-                source_dec,
-                use_multiscale=use_multiscale,
-                multiscale_scales=multiscale_scales,
-                weight=weight,
-                robust=robust,
-                threshold=threshold,
-                niter=niter,
-                minuv_l=minuv_l,
-                ncpu=ncpu,
-                mem=mem,
-            )
-        if modify_final_datacolumn:  # Modify datacolumn with the self-calibrated data
-            tb.open(msname, nomodify=False)
-            cor_data = tb.getcol("CORRECTED_DATA")
-            tb.putcol("DATA", cor_data)
-            tb.flush()
-            tb.close()
-        os.system("touch " + msname + "/.peeled")
-        return 0
+    try:
+        peeldir = basedir + "/peel_" + os.path.basename(msname).split(".ms")[0]
+        if os.path.exists(peeldir)==False:
+            os.makedirs(peeldir)
+        tb = table()
+        tb.open(msname)
+        colnames = tb.colnames()
+        tb.close()
+        outputms=basedir+'/'+os.path.basename(msname).split(".ms")[0] + "_peeled.ms"
+        if os.path.exists(outputms) and os.path.exists(outputms + "/.peeled") and force_peel == False:
+            print("Peeling is done on ms: ", msname)
+            return 0,outputms
+        else:    
+            os.system("rm -rf "+outputms)
+        if "CORRECTED_DATA" in colnames:
+            if os.path.exists(msname.split(".ms")[0] + "_peeled.ms") == False:
+                print("Spliting corrected column of ms: ", os.path.basename(msname))
+                split(
+                    vis=msname,
+                    outputvis=outputms,
+                    datacolumn="corrected",
+                )
+        else:
+            os.system("cp -r " + msname + " " + outputms)
+        msname = outputms
+        peel_source_dic = get_ateam_sources(
+            msname,
+            metafits,
+            MWA_PB_file,
+            sweet_spot_file,
+            min_beam_threshold=min_beamgain,
+            threshold_flux=threshold_flux,
+        )
+        if len(peel_source_dic) == 0:
+            print("No source to peel.")
+            os.system("touch " + msname + "/.peeled")
+            return 0,msname
+        else:
+            if os.path.exists(peeldir) == False:
+                os.makedirs(peeldir)
+            else:
+                os.system("rm -rf "+peeldir+"/*")   
+            source_names = list(peel_source_dic.keys())
+            for source in source_names:
+                source_ra, source_dec, alt, az, appflux = peel_source_dic[source]
+                peel_source(
+                    msname,
+                    metafits,
+                    peeldir,
+                    source,
+                    source_ra,
+                    source_dec,
+                    use_multiscale=use_multiscale,
+                    multiscale_scales=multiscale_scales,
+                    weight=weight,
+                    robust=robust,
+                    threshold=threshold,
+                    mask_threshold=threshold+1,
+                    niter=niter,
+                    minuv_l=minuv_l,
+                    ncpu=ncpu,
+                    mem=mem,
+                )
+            if modify_final_datacolumn:  # Modify datacolumn with the self-calibrated data
+                tb.open(msname, nomodify=False)
+                cor_data = tb.getcol("CORRECTED_DATA")
+                tb.putcol("DATA", cor_data)
+                tb.flush()
+                tb.close()
+            if keep_peeled==False and os.path.exists(peeldir):
+                os.system("rm -rf "+peeldir)
+            gc.collect()
+            os.system("touch " + msname + "/.peeled")
+            return 0,msname
+    except Exception as e:
+        if keep_peeled==False and os.path.exists(peeldir):
+            os.system("rm -rf "+peeldir)
+        traceback.print_exc()
+        gc.collect()
+        return 1,None
 
 
 ################################
@@ -309,8 +350,8 @@ def main():
     parser.add_option(
         "--threshold_flux",
         dest="threshold_flux",
-        default=0.0,
-        help="Minimum apparent flux density threshold to consider the source to peel",
+        default=0.1,
+        help="Minimum apparent flux density threshold to consider the source to peel in Jy",
         metavar="Float",
     )
     parser.add_option(
@@ -383,6 +424,13 @@ def main():
         help="Force peeling even ms is saying it is already peeled",
         metavar="Boolean",
     )
+    parser.add_option(
+        "--keep_peeled",
+        dest="keep_peeled",
+        default=False,
+        help="Keep peeled source images or not",
+        metavar="Boolean",
+    )
     (options, args) = parser.parse_args()
     if options.msname == None or os.path.exists(options.msname) == False:
         print("Please provide correct measurement set name.\n")
@@ -393,7 +441,7 @@ def main():
     if options.basedir == None or os.path.exists(options.basedir) == False:
         print("Please provide correct base directory name.\n")
         return 1
-    msg = run_peel(
+    msg, peeled_msname = run_peel(
         options.msname,
         options.metafits,
         options.basedir,
@@ -412,9 +460,11 @@ def main():
         ncpu=int(options.ncpu),
         mem=float(options.absmem),
         force_peel=eval(str(options.force_peel)),
+        keep_peeled = eval(str(options.keep_peeled)),
     )
     if msg == 0:
         print("Source peeling is completed successfully.")
+        print ("Peeled msname: ",peeled_msname)
     else:
         print("Source peeling is completed unsuccessfully. Issues occured.")
     gc.collect()

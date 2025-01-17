@@ -21,9 +21,11 @@ def perform_spectrotemporal_imaging(
     FWHM=True,
     imsize=None,
     threshold=3,
+    mask_threshold=5,
     niter=100000,
     minuv_l=-1,
     savemodel=False,
+    continue_imaging=False,
     ncpu=-1,
     mem=-1,
 ):
@@ -59,12 +61,16 @@ def perform_spectrotemporal_imaging(
         Image size in degree. If it is given, FWHM parameter will be ignored
     threshold : float
         Auto-threshold
+    mask_threshold : float
+        Mask threshold (it should be greater than threshold)    
     niter: int
         Number of iterations
     minuv_l : float
         Minimum uv-range in lambda
     savemodel : bool
         Save model to modelcolumn or not
+    continue_imaging : bool
+        Continue imaging after subtracting model. Only possible if same imaging parameters are used.
     ncpu : int
         Number of CPU threads to use
     mem : float
@@ -162,7 +168,7 @@ def perform_spectrotemporal_imaging(
     cwd = os.getcwd()
     os.chdir(workdir)
     cellsize = calc_cellsize(msname, 3)
-    if imsize == None and imsize < 32:
+    if imsize == None:
         imsize = calc_imsize(msname, 3, FWHM=FWHM)
     else:
         imsize = int(imsize * 3600.0 / cellsize)
@@ -173,6 +179,9 @@ def perform_spectrotemporal_imaging(
     if float(minuv_l) < 0:
         uvrange = get_calibration_uvrange(msname)
         minuv_l = float(uvrange.split("~")[0])
+    mssize = get_column_size(msname, "DATA")
+    if mask_threshold<=threshold:
+        mask_threshold=threshold+0.1
     wsclean_args = [
         "-scale " + str(cellsize) + "asec",
         "-size " + str(imsize) + " " + str(imsize),
@@ -184,8 +193,8 @@ def perform_spectrotemporal_imaging(
         "-mgain 0.85",
         "-nmiter 5",
         "-gain 0.1",
-        "-join-channels",
-        "-auto-threshold 1 -auto-mask " + str(threshold),
+        "-auto-threshold "+str(threshold)+
+        " -auto-mask " + str(mask_threshold),
         "-minuv-l " + str(minuv_l),
         "-channels-out " + str(nchan),
         "-intervals-out " + str(ntime),
@@ -201,7 +210,11 @@ def perform_spectrotemporal_imaging(
     if ncpu > 0:
         wsclean_args.append("-j " + str(ncpu))
     if mem > 0:
-        wsclean_args.append("-abs-mem " + str(mem))
+        wsclean_args.append("-abs-mem " + str(round(mem,2)))
+        if mem>2*mssize:
+            wsclean_args.append("-join-channels")
+    if continue_imaging:
+        wsclean_args.append('-continue')
     if pol == "QU":
         wsclean_cmd = (
             "wsclean " + " ".join(wsclean_args) + " -join-polarizations " + msname
@@ -214,7 +227,14 @@ def perform_spectrotemporal_imaging(
     total_chunks = nchan * 4 * 4
     if total_chunks > soft_limit:
         resource.setrlimit(resource.RLIMIT_NOFILE, (total_chunks, hard_limit))
-    os.system(wsclean_cmd + " > " + prefix + "_wsclean.log")
+    exit_code=os.system(wsclean_cmd + " > " + prefix + "_wsclean.log")
+    if exit_code!=0 and continue_imaging:
+        print ("Error in continue imaging using previous models. Starting fresh.")
+        wsclean_args=wsclean_cmd.split(' ')
+        if '-continue' in wsclean_args:
+            wsclean_args.remove('-continue')
+        wsclean_cmd=' '.join(wsclean_args)
+        os.system(wsclean_cmd + " > " + prefix + "_wsclean.log")
     os.chdir(pwd)
     return 0, workdir, os.path.basename(prefix)
 
@@ -498,6 +518,13 @@ def main():
         metavar="Float",
     )
     parser.add_option(
+        "--mask_threshold",
+        dest="mask_threshold",
+        default=5.0,
+        help="Mask threshold for CLEANing (It should be greater than threshold)",
+        metavar="Float",
+    )
+    parser.add_option(
         "--niter",
         dest="niter",
         default=100000,
@@ -584,6 +611,7 @@ def main():
         weight=options.weight,
         robust=float(options.robust),
         threshold=float(options.threshold),
+        mask_threshold=float(options.mask_threshold),
         niter=int(options.niter),
         minuv_l=float(options.minuv_l),
         pol=options.pol,

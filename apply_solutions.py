@@ -1,5 +1,4 @@
 from casatasks import applycal, flagdata
-from calibrate_crossphase import apply_crossphasecal
 from optparse import OptionParser
 import os, gc, traceback
 
@@ -7,7 +6,7 @@ os.system("rm -rf casa*log")
 
 
 def apply_sol(
-    msname, bandpass_table="", kcross_table="", applymode="calflag", flagbackup=True
+    msname, basedir, bandpass_table="", kcross_table="", applymode="calflag", flagbackup=True
 ):
     """
     Apply bandpass and crosshand phase solutions
@@ -28,32 +27,28 @@ def apply_sol(
         if bandpass_table == "" and kcross_table == "":
             print("No calibration tables to apply.\n")
             gc.collect()
-            return 0
-        if bandpass_table != "":
+            return 0, None
+        else:
+            outputms = basedir+'/'+os.path.basename(msname).split(".ms")[0] + "_cor.ms"
+            if os.path.exists(outputms):
+                os.system("rm -rf "+outputms)
+            os.system("cp -r " + msname + " " + outputms)
+            msname = outputms
             print("Applying bandpass solutons from: " + bandpass_table + "\n")
+            print("Applying crosshand phase solutions from: " + kcross_table + "\n")
             applycal(
                 vis=msname,
-                gaintable=[bandpass_table],
-                applymode=applymode,
-                flagbackup=flagbackup,
-            )
-        if kcross_table != "":
-            print("Applying crosshand phase solutions from: " + kcross_table + "\n")
-            apply_crossphasecal(
-                msname,
-                gaintable=kcross_table,
-                datacolumn="CORRECTED_DATA",
+                gaintable=[bandpass_table,kcross_table],
                 applymode=applymode,
                 flagbackup=flagbackup,
             )
         print("Calibration solutions applied.\n")
         gc.collect()
-        return 0
+        return 0, msname
     except Exception as e:
         traceback.print_exc()
         gc.collect()
-        return 1
-
+        return 1, None
 
 ################################
 def main():
@@ -64,6 +59,13 @@ def main():
         dest="msname",
         default=None,
         help="Name of the measurement set",
+        metavar="String",
+    )
+    parser.add_option(
+        "--basedir",
+        dest="basedir",
+        default=None,
+        help="Name of the base directory",
         metavar="String",
     )
     parser.add_option(
@@ -111,11 +113,15 @@ def main():
     if options.bandpass_table == None:
         print("Please provide the crosshand phase table name.\n")
         return 1
+    if options.basedir == None or os.path.exists(options.basedir) == False:
+        print("Please provide correct base directory name.\n")
+        return 1
     if eval(str(options.do_flag)):
         print("Flagging: " + options.msname)
         flagdata(vis=options.msname, mode="tfcrop")
     msg = apply_sol(
         options.msname,
+        options.basedir,
         bandpass_table=options.bandpass_table,
         kcross_table=options.kcross_table,
         applymode=options.applymode,

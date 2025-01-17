@@ -8,18 +8,21 @@ from optparse import OptionParser
 
 def perform_single_selfcal(
     msname,
-    basedir,
+    selfcaldir,
     iteration=0,
     calmode="p",
     gaintype="T",
     solint="int",
+    applymode = "calonly",
     use_multiscale=True,
     multiscale_scales="",
     weight="briggs",
     robust=0.0,
     threshold=3,
+    mask_threshold=5,
     niter=100000,
     minuv_l=-1,
+    continue_imaging=False,
     ncpu=-1,
     mem=-1,
 ):
@@ -29,8 +32,8 @@ def perform_single_selfcal(
     ----------
     msname : str
         Name of the measurement set
-    basedir : str
-        Name of the base directory
+    selfcaldir : str
+        Name of the base directory for selfcal
     iteration : int
         Self-cal iteration number
     calmode : str
@@ -39,6 +42,8 @@ def perform_single_selfcal(
         Gain type for calibration
     solint : str
         Solution interval
+    applymode : str
+        Solution apply mode
     use_multiscale : bool
         Whether to use multiscale cleaning or not
     multiscale_scales : str
@@ -47,15 +52,33 @@ def perform_single_selfcal(
         Image weighting
     robust : float
         Briggs weighting robust parameter
+    threshold : float
+        CLEAN threshold
+    mask_threshold : float
+        Auto mask threshold
     niter : int
         Numbers of clean iteration
     minuv_l : float
         Minimum UV-lambda
+    continue_imaging : bool
+        Continue imaging using previous model
     ncpu : int
         Number of CPUs to use
     mem : float
         Amount of memory in GB to use
+    Returns
+    -------
+    int
+        Success message
+    float
+        Dynamic range of final round image
+    str
+        Caltable name
     """
+    if os.path.exists(selfcaldir + "/selfcal_" + str(iteration))==False:
+        os.makedirs(selfcaldir + "/selfcal_" + str(iteration))
+    else:
+        os.system("rm -rf "+selfcaldir + "/selfcal_" + str(iteration)+"/*")
     print("#####################")
     print("Selfcal iteration: " + str(iteration))
     print("#####################")
@@ -65,7 +88,7 @@ def perform_single_selfcal(
         msname,
         freqres=1280,
         ntime=1,
-        imagedir=basedir + "/selfcal_" + str(iteration),
+        imagedir=selfcaldir + "/selfcal_" + str(iteration),
         use_multiscale=use_multiscale,
         multiscale_scales=multiscale_scales,
         weight=weight,
@@ -73,11 +96,13 @@ def perform_single_selfcal(
         pol="I",
         FWHM=True,
         threshold=threshold,
+        mask_threshold=mask_threshold,
         niter=niter,
         minuv_l=minuv_l,
         savemodel=True,
         ncpu=ncpu,
         mem=mem,
+        continue_imaging=continue_imaging,
     )
     mfs_imagename = imagedir + "/" + imageprefix + "-MFS-image.fits"
     mfs_resname = imagedir + "/" + imageprefix + "-MFS-residual.fits"
@@ -85,13 +110,13 @@ def perform_single_selfcal(
     rms = imstat(imagename=mfs_resname)["rms"][0]
     DR = round(maxval / rms, 2)
     caltable_name = (
-        basedir + "/selfcal_" + str(iteration) + "/selfcal_" + str(iteration) + ".gcal"
+        selfcaldir + "/selfcal_" + str(iteration) + "/selfcal_" + str(iteration) + ".gcal"
     )
     print("Doing gaincal ...")
     if minuv_l > 0:
         uvrange = ">" + str(minuv_l) + "lambda"
     else:
-        uvrange = ""
+        uvrange = get_calibration_uvrange(msname)
     gaincal(
         vis=msname,
         caltable=caltable_name,
@@ -104,9 +129,9 @@ def perform_single_selfcal(
         rmsthresh=[10, 7, 5, 3.5],
     )
     print("Applying solutions ...")
-    applycal(vis=msname, gaintable=[caltable_name], applymode="calonly", calwt=[True])
+    applycal(vis=msname, gaintable=[caltable_name], applymode=applymode, calwt=[True])
     print("Dynamic range ", DR)
-    return 0, DR
+    return 0, DR, caltable_name
 
 
 def run_selfcal_iterations(
@@ -116,6 +141,7 @@ def run_selfcal_iterations(
     max_iteration=5,
     solint="inf",
     gaintype="T",
+    applymode = "calonly",
     use_multiscale=True,
     multiscale_scales="",
     weight="briggs",
@@ -124,6 +150,7 @@ def run_selfcal_iterations(
     minuv_l=-1,
     ncpu=-1,
     mem=-1,
+    keep_selfcal_rounds=False,
 ):
     """
     Perform self-calibration
@@ -139,6 +166,8 @@ def run_selfcal_iterations(
         Maximum numbers of self-cal iterations
     solint : str
         Solution interval
+    applymode : str
+        Solution apply mode
     gaintype : str
         Gain type for calibration
     use_multiscale : bool
@@ -157,6 +186,8 @@ def run_selfcal_iterations(
         Number of CPUs to use
     mem : float
         Amount of memory in GB to use
+    keep_selfcal_rounds : bool
+        Keep selfcal round images and calibration tables
     Returns
     -------
     int
@@ -167,43 +198,57 @@ def run_selfcal_iterations(
         Final self-calibrated msname
     """
     try:
+        continue_imaging=False
+        selfcal_basedir = (
+            basedir + "/selfcal_" + os.path.basename(msname).split(".ms")[0]
+        )
         tb = table()
         tb.open(msname)
         colnames = tb.colnames()
         tb.close()
+        outputms = basedir+'/'+os.path.basename(msname).split(".ms")[0] + "_selfcal.ms"
+        if os.path.exists(outputms) and os.path.exists(outputms+"/.selfcal") and force_selfcal==False:
+            print("Selfcal is done on ms: ", msname)
+            return 0,outputms
+        else:    
+            os.system("rm -rf "+outputms)
         if "CORRECTED_DATA" in colnames:
-            if os.path.exists(msname.split(".ms")[0] + "_cor.ms") == False:
+            if os.path.exists(msname.split(".ms")[0] + "_selfcal.ms") == False:
                 print("Spliting corrected column of ms: ", os.path.basename(msname))
                 split(
                     vis=msname,
-                    outputvis=msname.split(".ms")[0] + "_cor.ms",
+                    outputvis=outputms,
                     datacolumn="corrected",
                 )
-            msname = msname.split(".ms")[0] + "_cor.ms"
+        else:
+            os.system("cp -r " + msname + " " + outputms)
+        msname = outputms
         start_threshold = 5
         selfcal_iter = 0
         DR0 = 0
         if float(minuv_l) < 0:
             uvrange = get_calibration_uvrange(msname)
             minuv_l = float(uvrange.split("~")[0])
-        selfcal_basedir = (
-            basedir + "/selfcal_" + os.path.basename(msname).split(".ms")[0]
-        )
         if os.path.exists(selfcal_basedir) == False:
             os.makedirs(selfcal_basedir)
+        else:
+            os.system("rm -rf "+selfcal_basedir+"/*")    
         while selfcal_iter < max_iteration:
-            msg, DR1 = perform_single_selfcal(
+            msg, DR1, caltable_name = perform_single_selfcal(
                 msname,
                 selfcal_basedir,
                 iteration=selfcal_iter,
                 calmode="ap",
                 solint=solint,
+                applymode=applymode,
                 gaintype=gaintype,
                 use_multiscale=use_multiscale,
                 multiscale_scales=multiscale_scales,
                 weight=weight,
                 robust=robust,
-                threshold=start_threshold,
+                threshold=3,
+                mask_threshold=start_threshold,
+                continue_imaging=continue_imaging,
                 niter=niter,
                 minuv_l=minuv_l,
                 ncpu=ncpu,
@@ -214,11 +259,13 @@ def run_selfcal_iterations(
                     if start_threshold > 3:
                         start_threshold -= 1
                         print("Reducing CLEAN threshold to: ", start_threshold)
+                        continue_imaging=True
                     else:
                         print("Self-cal has converged.")
                         break
                 elif DR1 < DR0 and (DR0 - DR1) / DR0 > 0.2:
                     print("Dynamic range decreases.")
+                    continue_imaging=False
                     break
             DR0 = DR1
             selfcal_iter += 1
@@ -229,11 +276,16 @@ def run_selfcal_iterations(
             tb.flush()
             tb.close()
         gc.collect()
+        os.system("touch "+msname+"/.selfcal")
+        if keep_selfcal_rounds==False and os.path.exists(selfcal_basedir):
+            os.system("rm -rf "+selfcal_basedir)
         return 0, DR1, msname
     except Exception as e:
+        if keep_selfcal_rounds==False and os.path.exists(selfcal_basedir):
+            os.system("rm -rf "+selfcal_basedir)
         traceback.print_exc()
         gc.collect()
-        return 1, None, msname
+        return 1, None, None
 
 
 ################################
@@ -269,6 +321,13 @@ def main():
         metavar="String",
     )
     parser.add_option(
+        "--applymode",
+        dest="applymode",
+        default="calonly",
+        help="Solution apply mode",
+        metavar="String",
+    )
+    parser.add_option(
         "--gaintype",
         dest="gaintype",
         default="T",
@@ -300,7 +359,7 @@ def main():
         "--weight",
         dest="weight",
         default="briggs",
-        help="Image weighiting scheme",
+        help="Image weighting scheme",
         metavar="String",
     )
     parser.add_option(
@@ -313,7 +372,7 @@ def main():
     parser.add_option(
         "--niter",
         dest="niter",
-        default=100000,
+        default=5000,
         help="Number of clean iteration",
         metavar="Integer",
     )
@@ -338,6 +397,13 @@ def main():
         help="Amount of memory to use in GB (default : -1, determine automatically)",
         metavar="Float",
     )
+    parser.add_option(
+        "--keep_selfcal_rounds",
+        dest="keep_selfcal_rounds",
+        default=False,
+        help="Keep selfcal rounds",
+        metavar="Boolean",
+    )
     (options, args) = parser.parse_args()
     if options.msname == None or os.path.exists(options.msname) == False:
         print("Please provide correct measurement set name.\n")
@@ -351,6 +417,7 @@ def main():
         modify_final_datacolumn=eval(str(options.modify_datacolumn)),
         max_iteration=int(options.max_iter),
         solint=options.solint,
+        applymode=options.applymode,
         gaintype=options.gaintype,
         use_multiscale=eval(str(options.use_multiscale)),
         multiscale_scales=options.multiscale_scales,
@@ -360,6 +427,7 @@ def main():
         minuv_l=float(options.minuv_l),
         ncpu=int(options.ncpu),
         mem=float(options.absmem),
+        keep_selfcal_rounds=eval(str(options.keep_selfcal_rounds)),
     )
     if msg == 0:
         print("Self-calibration is completed successfully.")

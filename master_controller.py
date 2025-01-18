@@ -347,6 +347,8 @@ def perform_all_peeling(msdir, basedir, MWA_PB_file='', sweet_spot_file ='', kee
     -------
     int
         Success message (0 or 1)
+    str
+        Directory name containing peeled ms
     """
     peeldir=basedir+'/peeling'
     if os.path.exists(peeldir)==False:
@@ -430,14 +432,14 @@ def perform_all_peeling(msdir, basedir, MWA_PB_file='', sweet_spot_file ='', kee
             "#####################\nPeeling of bright sources are finished successfully.\n#####################\n"
         )
         gc.collect()
-        return 0
+        return 0, peeldir
     except Exception as e:
         traceback.print_exc()
         gc.collect()
         print(
             "#####################\nPeeling of bright sources are finished unsuccessfully.\n#####################\n"
         )
-        return 1
+        return 1, None
 
 def perform_all_selfcal(msdir, basedir, max_iter=5, solint = "inf", gaintype ='T', applymode= "calonly", use_multiscale=False, multiscale_scales="", cpu_percent=10, mem_percent=10):
     """
@@ -468,6 +470,8 @@ def perform_all_selfcal(msdir, basedir, max_iter=5, solint = "inf", gaintype ='T
     -------
     int
         Success message (0 or 1)
+    str
+        Directory name containing self-calibrated ms
     """
     selfcaldir=basedir+'/selfcal'
     if os.path.exists(selfcaldir)==False:
@@ -551,14 +555,14 @@ def perform_all_selfcal(msdir, basedir, max_iter=5, solint = "inf", gaintype ='T
             "#####################\nPeeling of bright sources are finished successfully.\n#####################\n"
         )
         gc.collect()
-        return 0
+        return 0, selfcaldir
     except Exception as e:
         traceback.print_exc()
         gc.collect()
         print(
             "#####################\nPeeling of bright sources are finished unsuccessfully.\n#####################\n"
         )
-        return 1
+        return 1, selfcaldir
 
 def perform_all_spectral_imaging(
     msdir,
@@ -575,6 +579,46 @@ def perform_all_spectral_imaging(
     cpu_percent=10,
     mem_percent=10,
 ):
+    """
+    Perform spectral imaging on multiple measurement sets within a directory.
+    Parameters
+    ----------
+    msdir : str
+        Path to the directory containing Measurement Sets (MS) for processing.
+    basedir : str
+        Path to the base directory where the imaging results will be stored.
+    nchan : int
+        Number of frequency channels to divide the data into during imaging.
+    imaging_per_coarse : bool, optional
+        If True, perform imaging for each coarse channel separately (default: False).
+    multiscale_scales : list, optional
+        List of scale sizes (in pixels) for multiscale imaging (default: []).
+    weight : str, optional
+        Weighting scheme for imaging, e.g., 'natural', 'briggs' or 'uniform' (default: "briggs").
+    robust : float, optional
+        Robust parameter for Briggs weighting (range: -2 to 2; default: 0.0).
+    threshold : float, optional
+        Imaging threshold in sigma units (default: 6).
+    pol : str, optional
+        Polarizations to image, e.g., 'I', 'IQUV', etc. (default: "IQUV").
+    FWHM : bool, optional
+        If True, calculate the Full Width at Half Maximum (FWHM) for synthesized beams (default: True).
+    minuv_l : float, optional
+        Minimum UV distance (in wavelengths) for imaging. Use -1 to disable (default: -1).
+    cpu_percent : int, optional
+        Percentage of CPU resources to allocate for the process (default: 10).
+    mem_percent : int, optional
+        Percentage of memory resources to allocate for the process (default: 10).
+    Returns
+    -------
+    int
+       Success message
+    str 
+       Imaging directory name
+    """    
+    imagingdir=basedir+'/imaging'
+    if os.path.exists(imagingdir)==False:
+        os.makedirs(imagingdir)
     print("Imaging jobs are started ....\n")
     try:
         os.system("rm -rf " + basedir + "/.Finished_imaging*")
@@ -592,19 +636,20 @@ def perform_all_spectral_imaging(
         print("Maximum numbers of jobs to spawn at once:", max_jobs)
         scales = ",".join([str(i) for i in multiscale_scales])
         for ms in mslist:
-            if imaging_per_coarse or nchan == -1:
+            if imaging_per_coarse:
                 print("Imaging per coarse channels for ms: ", os.path.basename(ms))
                 msmd = msmetadata()
                 msmd.open(ms)
                 nchan = int(msmd.bandwidths(0) / (1280 * 1000))
                 msmd.close()
+            
             cmd = (
                 "python3 do_imaging.py --msname "
                 + ms
                 + " --nchan "
                 + str(nchan)
                 + " --imagedir "
-                + str(basedir)
+                + str(imagingdir)
                 + " --weight "
                 + weight
                 + " --robust "
@@ -663,14 +708,14 @@ def perform_all_spectral_imaging(
             "#####################\nImaging jobs are finished successfully.\n#####################\n"
         )
         gc.collect()
-        return 0
+        return 0, imagingdir
     except Exception as e:
         traceback.print_exc()
         gc.collect()
         print(
             "#####################\nImaging jobs are finished unsuccessfully.\n#####################\n"
         )
-        return 1
+        return 1, None
 
 
 def perform_all_ddcal(msdir, basedir, image_basedir, cpu_percent=10, mem_percent=10):

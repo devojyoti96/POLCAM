@@ -1,2 +1,2 @@
-# Polarization Calibration Pipeline for Murchison Widefield Array Observations
+# PolCaM -- Polarization Calibration routine for Murchison Widefield Array
 

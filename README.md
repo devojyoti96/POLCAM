@@ -1,2 +1,2 @@
-# PolCaM -- Polarization Calibration routine for Murchison Widefield Array
+# POLCAM -- POLarization CAlibration routine for Murchison widefield array
 

@@ -1,6 +1,0 @@
-[console_scripts]
-create_blank_caltable = polcam.create_caltable:main
-do_apply_basiccal = polcam.apply_solutions:main
-do_flagcal = polcam.do_flag_cal:main
-do_mwa_pbcor = polcam.mwapb:main
-import_model = polcam.hyperdrive_model:main

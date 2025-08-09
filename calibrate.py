@@ -15,8 +15,6 @@ def do_flag_cal(
     uvrange="",
     do_kcross=True,
     kcross_freqavg=-1,
-    bandtype="B",
-    polyorder=3,
     do_flag=True,
 ):
     """
@@ -34,10 +32,6 @@ def do_flag_cal(
         Perform crosshand phase calibration
     kcross_freqavg : float
         Frequency averaging in crosshand phase estimation in MHz
-    bandtype : str
-        Bandpass type (B or BPOLY)
-    polyorder : int
-        Polynomial order in case for bandtype BPOLY
     do_flag : bool
         Perform flagging or not
     Returns
@@ -109,7 +103,7 @@ def do_flag_cal(
             crossphase_caltable=f"{caltable_prefix}.kcross"
             bandpass_table=f"{caltable_prefix}.bcal"
             os.system(f"rm -rf {crossphase_caltable}")
-            cmd=f"python3 calibrate_crossphase.py --msname {msname} --caltable {crossphase_caltable} --gaintable {bandpass_table} --chanwidth {chanwidth} --uvrange {uvrange} --bandtype {bandtype} --polyorder {polyorder}"
+            cmd=f"python3 calibrate_crossphase.py --msname {msname} --caltable {crossphase_caltable} --gaintable {bandpass_table} --chanwidth {chanwidth} --uvrange {uvrange}"
             print (cmd)
             os.system(cmd)
             return 0, bandpass_table, crossphase_caltable
@@ -159,25 +153,11 @@ def main():
         metavar="String",
     )
     parser.add_option(
-        "--bandtype",
-        dest="bandtype",
-        default="BPOLY",
-        help="Bandpass type (B or BPOLY)",
-        metavar="String",
-    )
-    parser.add_option(
         "--kcross_freqavg",
         dest="kcross_freqavg",
         default=-1,
         help="Crosshand phase frequency averaging in MHz",
         metavar="Float",
-    )
-    parser.add_option(
-        "--polyorder",
-        dest="polyorder",
-        default=3,
-        help="Polynomial order for BPOLY",
-        metavar="Integer",
     )
     parser.add_option(
         "--caldir",
@@ -203,8 +183,6 @@ def main():
         uvrange=str(options.uvrange),
         do_kcross=eval(str(options.do_kcross)),
         kcross_freqavg=float(options.kcross_freqavg),
-        bandtype=options.bandtype,
-        polyorder=int(options.polyorder),
         do_flag=eval(str(options.do_flag)),
     )
     if msg == 0:
